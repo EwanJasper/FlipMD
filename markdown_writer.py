@@ -1,9 +1,39 @@
+from __future__ import annotations
+
+import re
+
 from block import Block
+from config import ConvertOptions
+
+# 连续 2+ 空行压缩为 1 个
+_BLANK_LINES_RE = re.compile(r"\n{3,}")
 
 
-def render(blocks: list[Block], title: str = "") -> str:
-    """将 Block 对象列表渲染为 Markdown 字符串"""
-    lines = []
+def render(
+    blocks: list[Block],
+    title: str = "",
+    options: ConvertOptions | None = None,
+    metadata: dict | None = None,
+) -> str:
+    """将 Block 对象列表渲染为 Markdown 字符串
+
+    Args:
+        blocks: Block 列表
+        title: 文档标题，非空时生成 # title
+        options: 转换选项，控制 merge_blank_lines / add_front_matter（None 用默认）
+        metadata: front matter 元数据（source/pages/converted 等），仅当
+                  options.add_front_matter=True 时生效
+    """
+    opts = options if options is not None else ConvertOptions()
+    lines: list[str] = []
+
+    # YAML front matter 元数据头
+    if opts.add_front_matter and metadata:
+        lines.append("---")
+        for key, val in metadata.items():
+            lines.append(f"{key}: {val}")
+        lines.append("---")
+        lines.append("")
 
     if title:
         lines.append(f"# {title}")
@@ -34,7 +64,13 @@ def render(blocks: list[Block], title: str = "") -> str:
             lines.append("")
             prev_was_table = False
 
-    return "\n".join(lines).strip()
+    content = "\n".join(lines).strip()
+
+    # 压缩连续空行：3+ 换行（即 2+ 空行）压缩为 2 换行（1 空行）
+    if opts.merge_blank_lines:
+        content = _BLANK_LINES_RE.sub("\n\n", content)
+
+    return content
 
 
 def _render_table(block: Block) -> list[str]:

@@ -22,6 +22,8 @@ class ConvertOptions:
         remove_cjk_spaces: 去除中文间空格
         merge_broken_paragraphs: 合并断裂短行
         fix_headings: 章节标题修复（总体说明 1.1 → 1.1 总体说明）
+        merge_blank_lines: 压缩连续空行为单个（渲染层，默认开）
+        add_front_matter: 输出 YAML front matter 元数据头（渲染层，默认关）
 
     业务特化（默认关，仅对当前业务文档开 business_mode）：
         business_mode: 总开关，启用下列所有业务规则
@@ -43,6 +45,8 @@ class ConvertOptions:
     remove_cjk_spaces: bool = True
     merge_broken_paragraphs: bool = True
     fix_headings: bool = True
+    merge_blank_lines: bool = True  # 压缩连续空行为单个（渲染层）
+    add_front_matter: bool = False  # 输出 YAML front matter 元数据头（渲染层）
     # 业务特化
     business_mode: bool = False
     fix_list_number_positions: bool = False

@@ -112,7 +112,16 @@ def _convert_one(path: str, output: str | None, options: ConvertOptions,
         from html_writer import render_html
         content = render_html(blocks, title=title)
     else:
-        content = render(blocks, title=title)
+        metadata = None
+        if options.add_front_matter:
+            from datetime import date
+            metadata = {
+                "source": os.path.basename(path),
+                "format": ext.lstrip(".").upper(),
+                "pages": page_count,
+                "converted": date.today().isoformat(),
+            }
+        content = render(blocks, title=title, options=options, metadata=metadata)
 
     os.makedirs(os.path.dirname(output) or ".", exist_ok=True)
     with open(output, "w", encoding="utf-8") as f:

@@ -58,6 +58,8 @@ def _build_options(
     fix_headings: bool = True,
     merge_cross_page_tables: bool = True,
     filter_footer: bool = True,
+    merge_blank_lines: bool = True,
+    add_front_matter: bool = False,
 ) -> ConvertOptions:
     """把工具参数映射为 ConvertOptions。
 
@@ -78,6 +80,8 @@ def _build_options(
     opts.fix_headings = fix_headings
     opts.merge_cross_page_tables = merge_cross_page_tables
     opts.filter_footer = filter_footer
+    opts.merge_blank_lines = merge_blank_lines
+    opts.add_front_matter = add_front_matter
 
     if page_range is not None:
         if len(page_range) != 2:
@@ -109,11 +113,14 @@ def _parse_blocks(file_path: str, options: ConvertOptions) -> tuple[list[Block],
         raise ValueError(f"不支持的文件格式: {ext}")
 
 
-def _render_content(blocks: list[Block], title: str, fmt: str) -> str:
+def _render_content(
+    blocks: list[Block], title: str, fmt: str,
+    options: ConvertOptions | None = None, metadata: dict | None = None,
+) -> str:
     """根据格式选择渲染器，返回内容字符串。"""
     if fmt == "html":
         return render_html(blocks, title=title)
-    return render(blocks, title=title)
+    return render(blocks, title=title, options=options, metadata=metadata)
 
 
 def _stats(blocks: list[Block], content: str, page_count: int) -> dict:
@@ -207,6 +214,8 @@ def convert_to_markdown(
     fix_headings: bool = True,
     merge_cross_page_tables: bool = True,
     filter_footer: bool = True,
+    merge_blank_lines: bool = True,
+    add_front_matter: bool = False,
     max_content_chars: int = 50000,
 ) -> dict:
     """将单个 PDF 或 Word(.docx)文档转换为 Markdown（或 HTML）。
@@ -251,11 +260,23 @@ def convert_to_markdown(
             fix_headings=fix_headings,
             merge_cross_page_tables=merge_cross_page_tables,
             filter_footer=filter_footer,
+            merge_blank_lines=merge_blank_lines,
+            add_front_matter=add_front_matter,
         )
 
         blocks, _ext, page_count = _parse_blocks(file_path, opts)
         title = os.path.splitext(os.path.basename(file_path))[0]
-        content = _render_content(blocks, title, format)
+        # front matter 元数据
+        metadata = None
+        if opts.add_front_matter:
+            from datetime import date
+            metadata = {
+                "source": os.path.basename(file_path),
+                "format": _ext.lstrip(".").upper(),
+                "pages": page_count,
+                "converted": date.today().isoformat(),
+            }
+        content = _render_content(blocks, title, format, options=opts, metadata=metadata)
 
         written_path = ""
         if output_path:
@@ -305,6 +326,8 @@ def batch_convert(
     fix_headings: bool = True,
     merge_cross_page_tables: bool = True,
     filter_footer: bool = True,
+    merge_blank_lines: bool = True,
+    add_front_matter: bool = False,
 ) -> dict:
     """批量转换目录下所有 PDF/Word 文档为 Markdown（或 HTML）。
 
@@ -344,6 +367,8 @@ def batch_convert(
             fix_headings=fix_headings,
             merge_cross_page_tables=merge_cross_page_tables,
             filter_footer=filter_footer,
+            merge_blank_lines=merge_blank_lines,
+            add_front_matter=add_front_matter,
         )
     except ValueError as e:
         return _error_result(str(e))
@@ -363,7 +388,16 @@ def batch_convert(
         try:
             blocks, _ext, page_count = _parse_blocks(path, opts)
             title = os.path.splitext(os.path.basename(path))[0]
-            content = _render_content(blocks, title, format)
+            metadata = None
+            if opts.add_front_matter:
+                from datetime import date
+                metadata = {
+                    "source": os.path.basename(path),
+                    "format": _ext.lstrip(".").upper(),
+                    "pages": page_count,
+                    "converted": date.today().isoformat(),
+                }
+            content = _render_content(blocks, title, format, options=opts, metadata=metadata)
 
             out_path = resolve_unique_output_path(
                 output_dir or None, path, ext=out_ext, template=template

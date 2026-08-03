@@ -1035,7 +1035,7 @@ class PdfToMarkdownApp:
                         self._log(f"  ⚠ 图片提取失败: {img_e}", "warn")
 
                 title = os.path.splitext(f.name)[0]
-                md_content = render(blocks, title=title)
+                md_content = render(blocks, title=title, options=self.convert_options)
 
                 output_path = self._get_output_path(f.path)
                 os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)

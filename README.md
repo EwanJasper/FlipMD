@@ -10,6 +10,8 @@
 - **跨页表格合并** — 自动合并 PDF 中跨页且表头相同的表格
 - **智能表头处理** — 扁平化多级表头、自动推断空表头（列中所有值相同则用该值作表头）
 - **中文排版优化** — 去除中文间的多余空格，修复 PDF 换行导致的断词
+- **空行清理** - 自动压缩连续多余空行为单个，保持 Markdown 简洁
+- **元数据头** - 可选输出 YAML front matter（来源文件、页数、转换日期），便于追溯
 - **序号位置修复** — 将排版中错位的列表序号（如"删除表。 1. TB01"）自动移到句首
 - **页码/页脚过滤** — 自动过滤 PDF 页脚区域的页码、罗马数字等干扰内容
 - **章节标题修复** — 将"总体说明 1.1"自动修正为"1.1 总体说明"
@@ -185,7 +187,7 @@ uv sync
 | `batch_convert` | 批量转换目录下所有文档 | `directory`、`output_dir`、`recursive`、`name_template` 等 |
 | `get_document_info` | 获取文档基本信息 | `file_path` |
 
-`convert_to_markdown` 返回 Markdown 文本内容与统计信息（页数/段落数/表格数/行数/`page_errors`/`ocr_status`）；指定 `output_path` 时同时写入文件；内容超长时按 `max_content_chars`（默认 50000）截断并标记 `truncated`。`batch_convert` 返回每个文件的处理结果明细（含 `stats` 和 `ocr_status`）。`get_document_info` 返回格式、大小、页数、是否扫描件等，便于转换前判断是否需要 OCR。
+`convert_to_markdown` 返回 Markdown 文本内容与统计信息（页数/段落数/表格数/行数/`page_errors`/`ocr_status`）；指定 `output_path` 时同时写入文件；内容超长时按 `max_content_chars`（默认 50000）截断并标记 `truncated`；支持 `merge_blank_lines`（空行清理，默认开）和 `add_front_matter`（YAML 元数据头，默认关）。`batch_convert` 返回每个文件的处理结果明细（含 `stats` 和 `ocr_status`）。`get_document_info` 返回格式、大小、页数、是否扫描件等，便于转换前判断是否需要 OCR。
 
 `ocr_status` 字段取值：`disabled`（用户关闭）/ `not_applicable`（非 PDF）/ `not_scanned`（文本型）/ `unavailable`（扫描型但未装 PaddleOCR）/ `applied`（已尝试 OCR）。
 

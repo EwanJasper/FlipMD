@@ -1,6 +1,7 @@
 """Markdown 渲染器测试"""
 
 from block import Block
+from config import ConvertOptions
 from markdown_writer import render
 
 
@@ -65,3 +66,65 @@ class TestRender:
         # 图片前后有空行
         lines = md.splitlines()
         assert "" in lines
+
+
+class TestMergeBlankLines:
+    """空行清理：连续 2+ 空行压缩为 1 个"""
+
+    def test_blank_lines_merged_by_default(self):
+        """默认开启，连续空行被压缩"""
+        blocks = [
+            Block(type="paragraph", text="段落A"),
+            Block(type="paragraph", text=""),
+            Block(type="paragraph", text=""),
+            Block(type="paragraph", text="段落B"),
+        ]
+        md = render(blocks, title="T")
+        # 不应出现 3+ 连续换行（即 2+ 空行）
+        assert "\n\n\n" not in md
+
+    def test_blank_lines_disabled(self):
+        """关闭后不压缩（但仍跳过空段落）"""
+        opts = ConvertOptions(merge_blank_lines=False)
+        blocks = [Block(type="paragraph", text="A"), Block(type="paragraph", text="B")]
+        md = render(blocks, title="T", options=opts)
+        assert "A" in md
+        assert "B" in md
+
+    def test_no_extra_blank_lines_in_normal_output(self):
+        """正常输出不应有多余空行"""
+        blocks = [
+            Block(type="paragraph", text="段落1"),
+            Block(type="table", headers=["A"], rows=[["1"]]),
+            Block(type="paragraph", text="段落2"),
+        ]
+        md = render(blocks, title="T")
+        assert "\n\n\n" not in md
+
+
+class TestFrontMatter:
+    """YAML front matter 元数据头"""
+
+    def test_front_matter_added(self):
+        """add_front_matter=True 时输出 YAML 头"""
+        opts = ConvertOptions(add_front_matter=True)
+        blocks = [Block(type="paragraph", text="内容")]
+        metadata = {"source": "test.pdf", "pages": 5, "converted": "2026-08-03"}
+        md = render(blocks, title="T", options=opts, metadata=metadata)
+        assert md.startswith("---")
+        assert "source: test.pdf" in md
+        assert "pages: 5" in md
+        assert "converted: 2026-08-03" in md
+
+    def test_front_matter_disabled_by_default(self):
+        """默认不输出 front matter"""
+        blocks = [Block(type="paragraph", text="内容")]
+        md = render(blocks, title="T")
+        assert not md.startswith("---")
+
+    def test_front_matter_without_metadata_ignored(self):
+        """add_front_matter=True 但无 metadata 时不输出"""
+        opts = ConvertOptions(add_front_matter=True)
+        blocks = [Block(type="paragraph", text="内容")]
+        md = render(blocks, title="T", options=opts, metadata=None)
+        assert not md.startswith("---")
