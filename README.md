@@ -52,7 +52,24 @@ pip install pdfplumber python-docx mcp
 ### 使用 GUI
 
 ```bash
-uv run python main.py
+# 通用（Windows / macOS / Linux）
+uv run python launch.py
+
+# 或直接用入口点
+uv run pdf2md-gui
+```
+
+各平台双击启动：
+
+| 平台 | 方式 |
+|---|---|
+| Windows | 双击 `启动工具.bat`（控制台模式，显示日志便于排障） |
+| macOS / Linux | `chmod +x launch.sh && ./launch.sh` |
+
+无控制台窗口启动（Windows，等价后台运行）：
+
+```bash
+python launch.py --no-console
 ```
 
 #### 批量转换操作步骤
@@ -205,8 +222,9 @@ pdf-to-markdown/
 ├── config.py              # ConvertOptions + AppConfig + ~/.pdf2md/config.json 持久化
 ├── pyproject.toml         # 项目配置（依赖 / scripts / ruff / mypy / pytest）
 ├── uv.lock                # 依赖锁定
-├── 启动工具.bat           # Windows 启动脚本（双击打开 GUI）
-├── 启动工具.vbs           # Windows 后台启动脚本（无控制台窗口）
+├── launch.py              # 跨平台启动脚本（uv 检测 + 降级 + --no-console）
+├── launch.sh              # macOS / Linux 启动脚本（chmod +x 后双击运行）
+├── 启动工具.bat           # Windows 启动脚本（双击打开 GUI，调 launch.py）
 │
 ├── result/                # 黄金样本（真实 PDF + 转换结果，用于回归测试）
 │   ├── sample-1.pdf
