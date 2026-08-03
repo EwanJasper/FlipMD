@@ -595,6 +595,9 @@ class PdfToMarkdownApp:
         # 右键菜单
         self._ctx_menu = tk.Menu(self.root, tearoff=0, bg=Colors.CARD, fg=Colors.TEXT,
                                  activebackground=Colors.HIGHLIGHT, activeforeground=Colors.TEXT)
+        self._ctx_menu.add_command(label="合并选中文件", command=self._merge_selected)
+        self._ctx_menu.add_command(label="生成摘要", command=self._summarize_selected)
+        self._ctx_menu.add_separator()
         self._ctx_menu.add_command(label="移除选中", command=self._remove_selected)
         self._ctx_menu.add_command(label="清空列表", command=self._clear_list)
         self._listbox.bind("<Button-3>", self._on_context_menu)
@@ -982,6 +985,128 @@ class PdfToMarkdownApp:
     def _stop_convert(self):
         self._stop_requested = True
         self._log("⚠ 用户请求停止...")
+
+    def _get_selected_files(self) -> list:
+        """获取列表中选中的文件项"""
+        selection = self._listbox.curselection()
+        if not selection:
+            messagebox.showinfo("提示", "请先在列表中选择文件")
+            return []
+        return [self.files[i] for i in selection]
+
+    def _merge_selected(self):
+        """合并选中的文件为单个 Markdown"""
+        selected = self._get_selected_files()
+        if len(selected) < 2:
+            messagebox.showinfo("提示", "请选择至少 2 个文件进行合并")
+            return
+
+        # 选择输出路径
+        output = filedialog.asksaveasfilename(
+            title="保存合并文件",
+            defaultextension=".md",
+            filetypes=[("Markdown 文件", "*.md"), ("所有文件", "*.*")],
+        )
+        if not output:
+            return
+
+        self._log("=" * 50)
+        self._log(f"开始合并 {len(selected)} 个文件")
+
+        thread = threading.Thread(target=self._do_merge, args=(selected, output), daemon=True)
+        thread.start()
+
+    def _do_merge(self, selected, output):
+        """后台执行合并"""
+        try:
+            from markdown_writer import merge_and_render
+
+            documents = []
+            failed = []
+            for f in selected:
+                try:
+                    ext = os.path.splitext(f.path)[1].lower()
+                    if ext == ".pdf":
+                        blocks = parse(f.path, self.convert_options)
+                    elif ext == ".docx":
+                        blocks = parse_docx(f.path, self.convert_options)
+                    else:
+                        raise ValueError(f"不支持的格式: {ext}")
+                    doc_title = os.path.splitext(f.name)[0]
+                    documents.append((doc_title, blocks))
+                    self.root.after(0, lambda n=f.name: self._log(f"  ✓ {n}"))
+                except Exception as e:
+                    failed.append(f.name)
+                    self.root.after(0, lambda n=f.name, err=e: self._log(f"  ✗ {n}: {err}", "error"))
+
+            if not documents:
+                self.root.after(0, lambda: self._log("✗ 没有文件可合并", "error"))
+                return
+
+            content = merge_and_render(documents, title="合并文档", options=self.convert_options)
+            os.makedirs(os.path.dirname(output) or ".", exist_ok=True)
+            with open(output, "w", encoding="utf-8") as out_f:
+                out_f.write(content)
+
+            self.root.after(0, lambda: self._log(
+                f"✓ 合并 {len(documents)} 个文档 -> {output}", "success"))
+        except Exception as exc:
+            err_msg = f"✗ 合并失败: {exc}"
+            self.root.after(0, lambda: self._log(err_msg, "error"))
+
+    def _summarize_selected(self):
+        """生成选中文件的摘要"""
+        selected = self._get_selected_files()
+        if not selected:
+            return
+
+        self._log("=" * 50)
+        self._log(f"生成 {len(selected)} 个文件的摘要")
+
+        thread = threading.Thread(target=self._do_summarize, args=(selected,), daemon=True)
+        thread.start()
+
+    def _do_summarize(self, selected):
+        """后台执行摘要生成"""
+        try:
+            from summarize import summarize
+
+            for f in selected:
+                try:
+                    ext = os.path.splitext(f.path)[1].lower()
+                    if ext == ".pdf":
+                        blocks = parse(f.path, self.convert_options)
+                    elif ext == ".docx":
+                        blocks = parse_docx(f.path, self.convert_options)
+                    else:
+                        raise ValueError(f"不支持的格式: {ext}")
+
+                    result = summarize(blocks, title=f.name)
+                    stats = result["stats"]
+                    outline = result["outline"]
+
+                    self.root.after(0, lambda n=f.name: self._log(f"📄 {n} 摘要:"))
+                    self.root.after(0, lambda s=stats: self._log(
+                        f"   {s['paragraphs']} 段 | {s['tables']} 表 | {s['table_rows']} 表行"))
+                    if outline:
+                        self.root.after(0, lambda o=outline: self._log(
+                            f"   大纲（{len(o)} 个章节）:"))
+                        for item in outline[:20]:
+                            indent = "     " + "  " * (item["level"] - 1)
+                            line = f"{indent}{item['heading']}"
+                            if item["preview"]:
+                                line += f"  -> {item['preview'][:60]}"
+                            self.root.after(0, lambda msg=line: self._log(msg))
+                    else:
+                        self.root.after(0, lambda: self._log("   （未检测到标题结构）"))
+                except Exception as e:
+                    self.root.after(0, lambda n=f.name, err=e: self._log(
+                        f"  ✗ {n}: {err}", "error"))
+
+            self.root.after(0, lambda: self._log("✓ 摘要生成完成", "success"))
+        except Exception as exc:
+            err_msg = f"✗ 摘要失败: {exc}"
+            self.root.after(0, lambda: self._log(err_msg, "error"))
 
     def _do_batch_convert(self):
         pending = [f for f in self.files if f.status != FileItem.DONE]
