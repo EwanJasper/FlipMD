@@ -1,0 +1,42 @@
+# Python 虚拟环境
+.venv/
+venv/
+env/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 测试/类型/lint 缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# CodeGraph 索引（本机生成，运行时自动重建）
+.codegraph/
+
+# IDE / Agent 本地配置
+.claude/
+.idea/
+.vscode/
+
+# ZCode / Agent 会话产物（本机生成，勿提交）
+.zcode/
+
+# 设计/实现计划文档（Agent 工作产物，按需保留本地）
+docs/superpowers/
+
+# 业务文档 / 转换输出（涉密，勿提交）
+result/
+
+# 旧测试样本目录（已统一到 tests/samples/，此目录残留勿提交）
+test_samples/
+
+# 系统文件
+Thumbs.db
+Desktop.ini
+.DS_Store

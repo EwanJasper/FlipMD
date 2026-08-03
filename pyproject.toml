@@ -1,0 +1,54 @@
+[project]
+name = "pdf-to-markdown"
+version = "0.2.0"
+description = "PDF & Word to Markdown converter with table support, OCR, and CLI"
+requires-python = ">=3.10"
+dependencies = [
+    "pdfplumber>=0.11",
+    "python-docx>=1.1",
+    "mcp>=1.0",  # MCP server 依赖（含 MCPServer）
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+ocr = [
+    "paddleocr>=2.7",
+    "paddlepaddle>=2.6",
+]
+gui = [
+    "tkinterdnd2>=0.4",
+]
+
+[project.scripts]
+pdf2md = "cli:main"
+pdf2md-gui = "main:main"
+pw-to-markdown-mcp = "mcp_server:main"  # 启动 MCP server（stdio）
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试中的中文断言字符串难免超长；宽松断言 Exception 是测试不存在文件的合理用法
+"tests/*" = ["E501", "B017"]
+# conftest 需先操作 sys.path 再导入 pytest（项目模块路径注入）
+"tests/conftest.py" = ["E402"]
+# scripts 是一次性脚本，放宽
+"scripts/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+exclude = ["tests/", "scripts/"]
