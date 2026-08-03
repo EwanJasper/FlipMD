@@ -589,7 +589,8 @@ class PdfToMarkdownApp:
             list_frame, bg=Colors.INPUT_BG, fg=Colors.TEXT,
             selectbackground=Colors.HIGHLIGHT, selectforeground=Colors.TEXT,
             relief="flat", highlightthickness=0, borderwidth=0,
-            font=("Microsoft YaHei UI", 10)
+            font=("Microsoft YaHei UI", 10),
+            selectmode="extended"  # 支持 Ctrl/Shift 多选（合并/摘要需要）
         )
         self._listbox.pack(side="left", fill="both", expand=True)
 
@@ -601,6 +602,7 @@ class PdfToMarkdownApp:
         # 选中文件 → 加载预览
         self._listbox.bind("<<ListboxSelect>>", self._on_select_file)
         self._listbox.bind("<Double-Button-1>", self._on_double_click_file)
+        self._listbox.bind("<<ListboxSelect>>", self._on_selection_changed)
 
         # 右键菜单
         self._ctx_menu = tk.Menu(self.root, tearoff=0, bg=Colors.CARD, fg=Colors.TEXT,
@@ -998,11 +1000,17 @@ class PdfToMarkdownApp:
         self._stop_requested = True
         self._log("⚠ 用户请求停止...")
 
+    def _on_selection_changed(self, event):
+        """列表选中变化时更新合并/摘要按钮状态"""
+        count = len(self._listbox.curselection())
+        self._merge_btn.set_disabled(count < 2 or self._converting)
+        self._summarize_btn.set_disabled(count == 0 or self._converting)
+
     def _get_selected_files(self) -> list:
         """获取列表中选中的文件项"""
         selection = self._listbox.curselection()
         if not selection:
-            messagebox.showinfo("提示", "请先在列表中选择文件")
+            self._log("⚠ 请先在列表中选择文件（按住 Ctrl 可多选）", "warn")
             return []
         return [self.files[i] for i in selection]
 
@@ -1010,7 +1018,7 @@ class PdfToMarkdownApp:
         """合并选中的文件为单个 Markdown"""
         selected = self._get_selected_files()
         if len(selected) < 2:
-            messagebox.showinfo("提示", "请选择至少 2 个文件进行合并")
+            self._log("⚠ 合并需要至少选择 2 个文件（按住 Ctrl 可多选）", "warn")
             return
 
         # 选择输出路径
