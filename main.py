@@ -566,6 +566,16 @@ class PdfToMarkdownApp:
                                        font=("Microsoft YaHei UI", 9), disabled=True)
         self._clear_btn.pack(side="left", padx=(6, 0))
 
+        self._merge_btn = ModernButton(toolbar, text="合并选中", command=self._merge_selected,
+                                       width=btn_w, height=30, bg=Colors.HIGHLIGHT,
+                                       font=("Microsoft YaHei UI", 9), disabled=True)
+        self._merge_btn.pack(side="left", padx=(6, 0))
+
+        self._summarize_btn = ModernButton(toolbar, text="生成摘要", command=self._summarize_selected,
+                                           width=btn_w, height=30, bg=Colors.HIGHLIGHT,
+                                           font=("Microsoft YaHei UI", 9), disabled=True)
+        self._summarize_btn.pack(side="left", padx=(6, 0))
+
         self._count_label = tk.Label(toolbar, text="共 0 个文件", anchor="e",
                                      fg=Colors.TEXT_SECONDARY, bg=Colors.CARD,
                                      font=("Microsoft YaHei UI", 9))
@@ -805,6 +815,8 @@ class PdfToMarkdownApp:
         self._count_label.config(text=f"共 {count} 个文件  (已完成 {done})")
         self.convert_btn.set_disabled(count == 0 or self._converting)
         self._clear_btn.set_disabled(count == 0)
+        self._merge_btn.set_disabled(count < 2 or self._converting)
+        self._summarize_btn.set_disabled(count == 0 or self._converting)
 
     def _status_icon(self, status: str) -> str:
         return {"pending": "○", "processing": "◉", "done": "●", "failed": "●"}.get(status, "○")
