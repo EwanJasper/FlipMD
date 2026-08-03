@@ -259,6 +259,90 @@ def cmd_info(args) -> int:
     return 0
 
 
+def cmd_merge(args) -> int:
+    """合并多个文档为一个 Markdown"""
+    from block import Block
+    from markdown_writer import merge_and_render
+
+    options = _build_options(args)
+    documents: list[tuple[str, list[Block]]] = []
+    failed: list[str] = []
+
+    for path in args.inputs:
+        if not os.path.exists(path):
+            failed.append(f"{path}: 文件不存在")
+            print(f"  ✗ {path}: 文件不存在", file=sys.stderr)
+            continue
+        try:
+            ext = os.path.splitext(path)[1].lower()
+            if ext == ".pdf":
+                blocks = parse_pdf(path, options)
+            elif ext == ".docx":
+                blocks = parse_docx(path, options)
+            else:
+                failed.append(f"{path}: 不支持的格式 {ext}")
+                print(f"  ✗ {path}: 不支持的格式 {ext}", file=sys.stderr)
+                continue
+            doc_title = os.path.splitext(os.path.basename(path))[0]
+            documents.append((doc_title, blocks))
+            print(f"  ✓ {path} ({len(blocks)} blocks)")
+        except Exception as e:
+            failed.append(f"{path}: {e}")
+            print(f"  ✗ {path}: {e}", file=sys.stderr)
+
+    if not documents:
+        print("✗ 没有文件可合并", file=sys.stderr)
+        return 1
+
+    content = merge_and_render(documents, title=args.title, options=options)
+
+    output = args.output or "merged.md"
+    os.makedirs(os.path.dirname(output) or ".", exist_ok=True)
+    with open(output, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    total_blocks = sum(len(bl) for _, bl in documents)
+    print(f"\n✓ 合并 {len(documents)} 个文档 / {total_blocks} blocks -> {output}")
+    if failed:
+        print(f"⚠ {len(failed)} 个文件失败: {failed}")
+    return 0
+
+
+def cmd_summarize(args) -> int:
+    """生成文档摘要"""
+    from summarize import summarize
+
+    if not os.path.exists(args.input):
+        print(f"✗ 文件不存在: {args.input}", file=sys.stderr)
+        return 2
+
+    options = _build_options(args)
+    ext = os.path.splitext(args.input)[1].lower()
+
+    if ext == ".pdf":
+        blocks = parse_pdf(args.input, options)
+    elif ext == ".docx":
+        blocks = parse_docx(args.input, options)
+    else:
+        print(f"✗ 不支持的格式: {ext}", file=sys.stderr)
+        return 1
+
+    title = os.path.splitext(os.path.basename(args.input))[0]
+    result = summarize(blocks, title=title, max_section_preview=args.preview_chars)
+
+    print(f"文档: {title}")
+    s = result["stats"]
+    print(f"统计: {s['paragraphs']} 段, {s['tables']} 表, {s['table_rows']} 表行")
+    print(f"\n大纲（{len(result['outline'])} 个章节）:")
+    print("=" * 50)
+    for item in result["outline"]:
+        indent = "  " * (item["level"] - 1)
+        print(f"{indent}{item['heading']}")
+        if item["preview"]:
+            print(f"{indent}  → {item['preview']}")
+    return 0
+
+
 # ── 辅助函数 ───────────────────────────────────────────────────
 
 def _apply_name_template(template: str | None, base_name: str) -> str:
@@ -308,6 +392,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_info = sub.add_parser("info", help="显示文档信息")
     p_info.add_argument("input", help="输入文件路径")
     p_info.set_defaults(func=cmd_info)
+
+    # merge
+    p_merge = sub.add_parser("merge", help="合并多个文档为一个 Markdown")
+    p_merge.add_argument("inputs", nargs="+", help="输入文件路径列表（.pdf / .docx）")
+    p_merge.add_argument("-o", "--output", help="输出 Markdown 文件路径")
+    p_merge.add_argument("--title", default="合并文档", help="合并文档总标题")
+    _add_common_options(p_merge)
+    p_merge.set_defaults(func=cmd_merge)
+
+    # summarize
+    p_sum = sub.add_parser("summarize", help="生成文档摘要（大纲 + 预览）")
+    p_sum.add_argument("input", help="输入文件路径（.pdf / .docx）")
+    p_sum.add_argument("--preview-chars", type=int, default=100, help="每章预览最大字符数（默认 100）")
+    _add_common_options(p_sum)
+    p_sum.set_defaults(func=cmd_summarize)
 
     return p
 

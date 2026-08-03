@@ -170,15 +170,18 @@ class TestBuildOptions:
 
 
 class TestServerRegistration:
-    """验证三个工具已正确注册到 MCPServer"""
+    """验证工具已正确注册到 MCPServer"""
 
-    def test_three_tools_registered(self):
-        """list_tools 返回三个工具"""
+    def test_all_tools_registered(self):
+        """list_tools 返回全部工具"""
         import asyncio
 
         tools = asyncio.run(mcp_server.mcp.list_tools())
         names = {t.name for t in tools}
-        assert names == {"convert_to_markdown", "batch_convert", "get_document_info"}
+        assert names == {
+            "convert_to_markdown", "batch_convert", "get_document_info",
+            "merge_documents", "summarize_document",
+        }
 
     def test_tool_schemas_have_required_params(self):
         """工具 schema 含必填参数"""

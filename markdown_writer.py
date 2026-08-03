@@ -73,6 +73,32 @@ def render(
     return content
 
 
+def merge_and_render(
+    documents: list[tuple[str, list[Block]]],
+    title: str = "",
+    options: ConvertOptions | None = None,
+) -> str:
+    """将多个文档的 Block 列表合并渲染为单个 Markdown 字符串
+
+    每个文档渲染为一个二级标题(## 文件名)章节,内部段落/表格正常渲染。
+    适用于多文件汇总场景(如多份报告合并、章节拼接)。
+
+    Args:
+        documents: [(文件标题, blocks), ...] 列表,按顺序合并
+        title: 合并文档的总标题(生成 # title)
+        options: 转换选项(控制 merge_blank_lines 等)
+    """
+    opts = options if options is not None else ConvertOptions()
+    all_blocks: list[Block] = []
+
+    for doc_title, blocks in documents:
+        # 每个文档前加二级标题作为分隔
+        all_blocks.append(Block(type="paragraph", text=f"## {doc_title}"))
+        all_blocks.extend(blocks)
+
+    return render(all_blocks, title=title, options=opts)
+
+
 def _render_table(block: Block) -> list[str]:
     """将 Table Block 渲染为 GFM 表格语法"""
     if not block.headers and not block.rows:

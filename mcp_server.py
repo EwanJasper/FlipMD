@@ -34,8 +34,9 @@ from config import ConvertOptions
 from engine import get_page_count
 from engine import parse as parse_pdf
 from html_writer import render_html
-from markdown_writer import render
+from markdown_writer import merge_and_render, render
 from output_path import resolve_unique_output_path
+from summarize import summarize
 from word_engine import parse_docx
 
 mcp = MCPServer(
@@ -430,6 +431,93 @@ def batch_convert(
 
 
 @mcp.tool()
+def merge_documents(
+    file_paths: list[str],
+    output_path: str = "",
+    title: str = "合并文档",
+    business_mode: bool = False,
+    enable_ocr: bool = True,
+    ocr_lang: str = "ch",
+    page_range: list[int] | None = None,
+    merge_blank_lines: bool = True,
+) -> dict:
+    """将多个 PDF/Word 文档合并为单个 Markdown 文件。
+
+    每个文档渲染为一个二级标题(## 文件名)章节,按传入顺序合并。
+    适用于多份报告汇总、章节拼接等场景。
+
+    Args:
+        file_paths: 输入文件路径列表(.pdf / .docx),按顺序合并
+        output_path: 输出文件路径;留空则不写文件,仅返回内容
+        title: 合并文档的总标题(默认"合并文档")
+        business_mode: 启用业务文档模式
+        enable_ocr: 扫描型 PDF 自动 OCR
+        ocr_lang: OCR 语言(ch / en / ch_en)
+        page_range: PDF 页码范围 [start, end];None=全部
+        merge_blank_lines: 压缩连续空行(默认开)
+
+    Returns:
+        {"success": bool, "content": str, "stats": {...}, "output_path": str, "error": str|null}
+    """
+    try:
+        if not file_paths:
+            return _error_result("file_paths 不能为空")
+
+        opts = _build_options(
+            business_mode=business_mode,
+            enable_ocr=enable_ocr,
+            ocr_lang=ocr_lang,
+            page_range=page_range,
+            merge_blank_lines=merge_blank_lines,
+        )
+
+        documents: list[tuple[str, list[Block]]] = []
+        total_page_count = 0
+        failed_files: list[str] = []
+
+        for fp in file_paths:
+            if not os.path.exists(fp):
+                failed_files.append(f"{fp}: 文件不存在")
+                continue
+            try:
+                blocks, _ext, page_count = _parse_blocks(fp, opts)
+                doc_title = os.path.splitext(os.path.basename(fp))[0]
+                documents.append((doc_title, blocks))
+                total_page_count += page_count
+            except Exception as e:
+                failed_files.append(f"{fp}: {type(e).__name__}: {e}")
+
+        if not documents:
+            return _error_result("所有文件均解析失败: " + "; ".join(failed_files))
+
+        content = merge_and_render(documents, title=title, options=opts)
+
+        written_path = ""
+        if output_path:
+            os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            written_path = os.path.abspath(output_path)
+
+        stats = _stats(
+            [b for _, bl in documents for b in bl], content, total_page_count
+        )
+        if failed_files:
+            stats["failed_files"] = failed_files
+
+        return {
+            "success": True,
+            "content": content,
+            "stats": stats,
+            "output_path": written_path,
+            "merged_count": len(documents),
+            "error": None,
+        }
+    except Exception as e:
+        return _error_result(f"合并失败: {type(e).__name__}: {e}")
+
+
+@mcp.tool()
 def get_document_info(file_path: str) -> dict:
     """获取 PDF/Word 文档的基本信息（格式、大小、页数、段落数、是否扫描件）。
 
@@ -500,6 +588,57 @@ def get_document_info(file_path: str) -> dict:
         return info
     except Exception as e:
         return _error_result(f"读取失败: {type(e).__name__}: {e}")
+
+
+@mcp.tool()
+def summarize_document(
+    file_path: str,
+    business_mode: bool = False,
+    enable_ocr: bool = True,
+    ocr_lang: str = "ch",
+    page_range: list[int] | None = None,
+    max_section_preview: int = 100,
+) -> dict:
+    """生成文档的结构化摘要（大纲 + 每章预览 + 统计）。
+
+    从文档中提取标题层级和每章首段，生成结构化摘要。不依赖 AI 模型，
+    纯文本启发式提取，适用于快速了解文档内容、判断是否需要全文转换。
+
+    Args:
+        file_path: 输入文件路径（.pdf / .docx）
+        business_mode: 启用业务文档模式
+        enable_ocr: 扫描型 PDF 自动 OCR
+        ocr_lang: OCR 语言（ch / en / ch_en）
+        page_range: PDF 页码范围 [start, end]；None=全部
+        max_section_preview: 每个章节预览的最大字符数（默认 100）
+
+    Returns:
+        {"success": bool, "title": str, "outline": [...], "stats": {...},
+         "ocr_status": str, "error": str|null}
+        outline 每项: {"level": int, "heading": str, "preview": str}
+    """
+    try:
+        if not os.path.exists(file_path):
+            return _error_result(f"文件不存在: {file_path}")
+
+        opts = _build_options(
+            business_mode=business_mode,
+            enable_ocr=enable_ocr,
+            ocr_lang=ocr_lang,
+            page_range=page_range,
+        )
+
+        blocks, _ext, page_count = _parse_blocks(file_path, opts)
+        title = os.path.splitext(os.path.basename(file_path))[0]
+        result = summarize(blocks, title=title, max_section_preview=max_section_preview)
+        result["success"] = True
+        result["ocr_status"] = _ocr_status(file_path, opts, _ext)
+        result["error"] = None
+        return result
+    except (FileNotFoundError, PdfEncryptedError, PdfEmptyError, ValueError) as e:
+        return _error_result(str(e))
+    except Exception as e:
+        return _error_result(f"摘要生成失败: {type(e).__name__}: {e}")
 
 
 def main() -> None:
