@@ -1,6 +1,7 @@
 """扫描型 PDF OCR 模块
 
 依赖 PaddleOCR（可选依赖，未安装时降级为不可用）。
+已适配 PaddleOCR 2.x / 3.x 两种 API（初始化参数与返回结构均有差异）。
 
 工作流：
 1. is_scanned_pdf(path)：抽样几页检测文字密度，判断是否为扫描型 PDF
@@ -79,10 +80,14 @@ def ocr_pdf(pdf_path: str, options: ConvertOptions | None = None) -> list[Block]
     from table_utils import process_table_data
 
     # 初始化引擎（首次会下载模型，较慢）
+    # PaddleOCR 3.x：use_angle_cls 已弃用 -> use_textline_orientation；
+    # show_log 已移除。
+    # paddlepaddle 3.x 的 oneDNN(PIR) 推理路径有 bug（ArrayAttribute 不支持），
+    # 必须 enable_mkldnn=False 才能正常运行。
     ocr = PaddleOCR(
-        use_angle_cls=True,
+        use_textline_orientation=True,
         lang=lang,
-        show_log=False,
+        enable_mkldnn=False,
     )
 
     blocks: list[Block] = []
@@ -119,7 +124,13 @@ def _ocr_page(ocr, page, page_num: int, options: ConvertOptions, process_table_d
         tmp_path = tmp.name
     try:
         im.original.save(tmp_path)
-        result = ocr.ocr(tmp_path, cls=True)
+        # PaddleOCR 3.x 的 ocr()/predict() 不再接受 cls 参数
+        # （角度分类改由初始化参数 use_textline_orientation 控制）；
+        # 2.x 支持 cls=True。探测后选择兼容调用。
+        try:
+            result = ocr.ocr(tmp_path, cls=True)
+        except TypeError:
+            result = ocr.ocr(tmp_path)
     finally:
         try:
             os.unlink(tmp_path)
@@ -130,10 +141,23 @@ def _ocr_page(ocr, page, page_num: int, options: ConvertOptions, process_table_d
     if not result:
         return blocks
 
-    # PaddleOCR 返回 [[ [bbox, (text, conf)], ... ]]
+    # 兼容 PaddleOCR 2.x / 3.x 两种返回结构：
+    #   3.x: result 是 list[OCRResult]（dict-like），每项含
+    #        rec_texts / rec_scores / dt_polys 等键
+    #   2.x: result 是 list[list[ [bbox, (text, conf)], ... ]]
     for line in result:
         if not line:
             continue
+
+        # PaddleOCR 3.x：OCRResult dict-like（有 rec_texts 键）
+        if hasattr(line, "get") and "rec_texts" in (line.keys() if hasattr(line, "keys") else []):
+            texts = line.get("rec_texts") or []
+            for txt in texts:
+                if txt:
+                    blocks.append(Block(type="paragraph", y_top=0, text=str(txt)))
+            continue
+
+        # PaddleOCR 2.x：[[ bbox, (text, conf) ], ... ]
         texts: list[str] = []
         for item in line:
             if item and len(item) >= 2:
