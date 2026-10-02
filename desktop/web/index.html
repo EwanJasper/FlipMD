@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>FlipMD</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div id="app" class="app" aria-busy="true">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand"><span class="brand-symbol"><img src="assets/flipmd-symbol-v3-blue.png" alt=""></span><span>FlipMD</span></div>
+      <nav class="main-nav">
+        <button class="nav-button" data-page="new" aria-current="page" disabled><span class="nav-symbol" aria-hidden="true">＋</span>新建转换</button>
+        <button class="nav-button" data-page="tasks" disabled><span class="nav-symbol" aria-hidden="true">▤</span>任务管理<span id="active-count" class="nav-count" hidden></span></button>
+      </nav>
+      <section class="recents" aria-label="最近完成的文件">
+        <h2>最近文件</h2>
+        <div id="recent-files"><p class="quiet small">还没有转换结果</p></div>
+      </section>
+      <div class="sidebar-bottom">
+        <button class="nav-button" data-page="settings" disabled><span class="nav-symbol" aria-hidden="true">⚙</span>设置</button>
+        <p class="local-note"><span class="local-dot" aria-hidden="true"></span>本地文档 · 本地处理</p>
+      </div>
+    </aside>
+    <main id="main" class="main">
+      <section id="connection-panel" class="connection-panel" role="status">
+        <div class="loading-mark" aria-hidden="true"></div>
+        <h1 id="connection-title">正在连接 FlipMD</h1>
+        <p id="connection-message" class="quiet">等待桌面窗口就绪。</p>
+        <code id="launch-command" hidden>uv run --python 3.12 --extra desktop flipmd</code>
+        <button id="retry-bootstrap" class="button" hidden>重新连接</button>
+      </section>
+
+      <section id="page-new" class="page" aria-label="新建转换" hidden>
+        <div id="import-empty" class="import-hero">
+          <p class="eyebrow">FLIPMD</p>
+          <h1>转换文档，保留结构。</h1>
+          <p class="hero-description">PDF / Word → Markdown · 本地文档转换</p>
+          <div id="drop-zone" class="drop-zone">
+            <span class="import-symbol" aria-hidden="true">↓</span>
+            <h2>将文件拖到这里</h2>
+            <p class="quiet">PDF、DOCX · 单个文件或多个文件</p>
+            <div class="actions centered"><button class="button primary" data-action="choose-files">选择文件</button><button class="button" data-action="choose-folder">选择文件夹</button></div>
+            <p class="small quiet">文件夹导入当前层的 PDF 和 DOCX 文件</p>
+          </div>
+          <div class="inline-settings"><span id="empty-output-label" class="small quiet">输出到原文件所在目录</span><button class="text-button" data-action="task-options">转换设置</button></div>
+        </div>
+        <div id="import-ready" hidden>
+          <header class="page-heading"><div><p class="eyebrow">新建转换</p><h1>准备转换</h1><p id="queue-count" class="quiet small"></p></div><div class="actions"><button class="button" data-action="choose-files">添加文件</button><button class="button" data-action="choose-folder">添加文件夹</button><button class="button ghost" data-action="clear-queue">清空列表</button></div></header>
+          <div class="queue-heading"><label class="check"><input id="queue-select-all" type="checkbox">全选</label><span id="queue-selection" class="quiet small"></span></div>
+          <div id="queue-list" class="file-list"></div>
+          <div class="selection-toolbar"><div class="actions"><button id="queue-merge" class="button" data-action="merge-queue" disabled>合并选中</button><button id="queue-summary" class="button" data-action="summary-queue" disabled>提取大纲与摘要</button><button id="queue-remove" class="button ghost" data-action="remove-queue" disabled>移除选中</button></div></div>
+          <section class="conversion-controls" aria-label="本次转换设置">
+            <div class="form-grid"><label class="field">输出格式<select id="task-format"><option value="md">Markdown (.md)</option><option value="html">HTML (.html)</option></select></label><div class="field"><span>输出位置</span><div class="directory-control"><span id="task-output" class="directory-label"></span><button class="button" data-action="choose-task-output">选择目录</button></div><button class="text-button small self-start" data-action="reset-task-output">使用原文件所在目录</button></div></div>
+            <div class="conversion-footer"><button class="text-button" data-action="task-options">转换设置</button><button id="start-convert" class="button primary" data-action="start-convert">开始转换</button></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="page-tasks" class="page" aria-label="任务管理" hidden>
+        <header class="page-heading"><div><h1>任务管理</h1><p class="quiet small">转换记录保存在本机</p></div><button class="button primary" data-page="new">新建转换</button></header>
+        <div class="task-tools"><div id="task-filters" class="tabs" aria-label="任务状态筛选"><button class="tab" data-filter="all" aria-pressed="true">全部</button><button class="tab" data-filter="active" aria-pressed="false">处理中</button><button class="tab" data-filter="completed" aria-pressed="false">已完成</button><button class="tab" data-filter="failed" aria-pressed="false">未完成</button></div><label class="search-label"><span class="sr-only">搜索文件名</span><input id="task-search" type="search" placeholder="搜索文件名"></label></div>
+        <div id="task-selection-bar" class="selection-toolbar" hidden><span id="task-selection-label" class="small quiet"></span><div class="actions"><button id="history-merge" class="button" data-action="merge-history">合并选中</button><button class="button" data-action="summary-history">提取大纲与摘要</button><button class="button ghost" data-action="clear-history-selection">取消选择</button></div></div>
+        <div id="job-list" aria-live="polite"></div>
+      </section>
+
+      <section id="page-result" class="page result-page" aria-label="结果工作区" hidden>
+        <header class="page-heading result-heading"><div class="result-heading-left"><button class="icon-button" data-page="tasks" aria-label="返回任务管理">←</button><div class="min-zero"><h1 id="result-title">转换结果</h1><p id="result-subtitle" class="small quiet"></p></div></div><div class="actions"><button class="button" data-action="toggle-summary">大纲与摘要</button><button id="export-result" class="button primary" data-action="export-result" disabled>导出</button></div></header>
+        <div id="result-loading" class="empty-state" role="status" hidden>正在读取转换结果…</div>
+        <div id="result-error" class="error-banner" role="alert" hidden></div>
+        <div id="result-content" hidden>
+          <div class="compare-grid">
+            <section class="preview-pane" aria-label="原文预览">
+              <div class="pane-toolbar"><span id="source-kind">原文</span><label id="source-select-label" class="source-picker" hidden><span class="sr-only">选择原文</span><select id="source-select"></select></label></div>
+              <div id="pdf-controls" class="pdf-toolbar" hidden><div class="actions"><button id="pdf-prev" class="icon-button" data-action="pdf-prev" aria-label="上一页">‹</button><form id="pdf-page-form" class="page-number-form"><label><span class="sr-only">原文页码</span><input id="pdf-page-number" type="number" min="1" value="1"></label><span id="pdf-total" class="quiet small"></span></form><button id="pdf-next" class="icon-button" data-action="pdf-next" aria-label="下一页">›</button></div><label class="zoom-select"><span class="sr-only">原文缩放</span><select id="pdf-zoom"><option value="fit">适合宽度</option><option value="100">100%</option><option value="125">125%</option><option value="150">150%</option></select></label></div>
+              <div id="source-note" class="source-note small quiet" hidden></div>
+              <div id="source-preview" class="source-scroll" aria-busy="false"></div>
+            </section>
+            <section class="result-pane" aria-label="转换结果">
+              <div class="pane-toolbar"><div class="tabs"><button class="tab" data-result-view="rendered" aria-pressed="true">阅读</button><button class="tab" data-result-view="source" aria-pressed="false">Markdown 源码</button></div><button id="copy-markdown" class="text-button" data-action="copy-markdown">复制</button></div>
+              <div id="rendered-result" class="result-scroll document-body"></div>
+              <pre id="markdown-result" class="result-scroll markdown-source" hidden></pre>
+            </section>
+          </div>
+          <footer class="result-footer"><span id="result-state" class="status"></span><div class="actions"><button class="text-button" data-action="refresh-result">刷新结果</button><button id="reveal-result" class="text-button" data-action="reveal-result">打开输出目录</button></div></footer>
+          <details id="summary-details" class="disclosure"><summary>大纲与摘要</summary><div id="summary-stats" class="summary-stats"></div><div id="summary-outline"></div></details>
+          <details id="log-details" class="disclosure"><summary>处理详情与日志</summary><pre id="result-logs" class="log-content"></pre><div class="actions"><button class="button" data-action="copy-log-selection">复制选中</button><button class="button" data-action="copy-log-all">复制全部</button><button class="button" data-action="export-log">导出日志</button></div></details>
+        </div>
+      </section>
+
+      <section id="page-settings" class="page settings-page" aria-label="设置" hidden>
+        <header class="page-heading"><div><h1>设置</h1><p class="quiet small">保存为新任务的默认配置，不影响已建立的任务。</p></div><button id="save-settings" class="button primary" type="submit" form="settings-form">保存设置</button></header>
+        <form id="settings-form">
+          <section class="settings-section"><h2>文件与输出</h2><div class="setting-row"><div><h3>默认输出位置</h3><p id="settings-output" class="quiet small directory-label"></p></div><div class="actions"><button type="button" class="button" data-action="choose-default-output">选择目录</button><button type="button" class="text-button" data-action="reset-default-output">使用源目录</button></div></div><div class="setting-row"><label for="settings-format"><h3>默认输出格式</h3><span class="quiet small">每次转换时可以单独调整</span></label><select id="settings-format"><option value="md">Markdown (.md)</option><option value="html">HTML (.html)</option></select></div></section>
+          <div id="settings-options"></div>
+          <section class="settings-section"><h2>外观</h2><div class="setting-row"><div><label for="settings-theme"><h3>主题</h3></label><p class="quiet small">跟随系统，或固定使用一种外观</p></div><select id="settings-theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div></section>
+          <section class="settings-section"><h2>任务历史</h2><div class="setting-row"><div><h3>记录保存在这台电脑上</h3><p class="quiet small">在任务管理中删除记录，不会删除源文件与导出文件。</p></div><button type="button" class="button" data-page="tasks">管理记录</button></div></section>
+          <div class="settings-about"><img src="assets/flipmd-symbol-v3-blue.png" alt=""><div><h3>FlipMD</h3><p class="quiet small">PDF / Word → Markdown · 本地桌面工具</p></div></div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="options-dialog" aria-labelledby="options-title"><form id="options-form"><header class="dialog-heading"><div><h2 id="options-title">本次转换设置</h2><p class="quiet small">只应用于当前导入的文件</p></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭转换设置">×</button></header><div id="task-options-fields"></div><p id="options-error" class="form-error" role="alert" hidden></p><footer class="dialog-footer"><button type="button" class="button" data-close-dialog>取消</button><button type="submit" class="button primary">应用设置</button></footer></form></dialog>
+  <dialog id="merge-dialog" aria-labelledby="merge-title-heading"><form id="merge-form"><header class="dialog-heading"><div><h2 id="merge-title-heading">合并文档</h2><p class="quiet small">按下列顺序生成一个 Markdown 文件</p></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭合并窗口">×</button></header><div id="merge-list"></div><label class="field space-top">文档标题<input id="merge-title" type="text" value="合并文档" maxlength="200" required></label><p id="merge-output" class="quiet small space-top"></p><p class="quiet small">使用本次转换设置，直接读取选中的源文件。</p><footer class="dialog-footer"><button type="button" class="button" data-close-dialog>取消</button><button id="merge-submit" type="submit" class="button primary">开始合并</button></footer></form></dialog>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title"><form id="confirm-form"><header class="dialog-heading"><h2 id="confirm-title"></h2><button type="button" class="icon-button" data-close-dialog aria-label="关闭确认窗口">×</button></header><p id="confirm-message"></p><footer class="dialog-footer"><button type="button" class="button" data-close-dialog>取消</button><button id="confirm-submit" class="button danger" type="submit">确认</button></footer></form></dialog>
+  <dialog id="export-dialog" aria-labelledby="export-title"><form id="export-form"><header class="dialog-heading"><h2 id="export-title">导出结果</h2><button type="button" class="icon-button" data-close-dialog aria-label="关闭导出窗口">×</button></header><label class="field">文件格式<select id="export-format"><option value="md">Markdown (.md)</option><option value="html">HTML (.html)</option></select></label><footer class="dialog-footer"><button type="button" class="button" data-close-dialog>取消</button><button id="export-submit" class="button primary" type="submit">选择保存位置</button></footer></form></dialog>
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

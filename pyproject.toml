@@ -22,11 +22,28 @@ ocr = [
 gui = [
     "tkinterdnd2>=0.4",
 ]
+desktop = [
+    "pywebview>=6.0,<7",
+    "markdown-it-py>=3,<5",
+    "pyperclip>=1.9,<2",
+]
 
 [project.scripts]
 pdf2md = "cli:main"
 pdf2md-gui = "main:main"
+flipmd = "desktop.app:main"
 pw-to-markdown-mcp = "mcp_server:main"  # 启动 MCP server（stdio）
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["desktop"]
+py-modules = ["block", "cli", "config", "engine", "html_writer", "image_extract", "launch", "main", "markdown_preview", "markdown_writer", "mcp_server", "ocr", "output_path", "postprocess", "summarize", "table_utils", "word_engine"]
+
+[tool.setuptools.package-data]
+desktop = ["web/*", "web/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

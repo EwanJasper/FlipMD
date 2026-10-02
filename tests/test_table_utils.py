@@ -2,8 +2,8 @@
 
 注意：process_table_data 的 is_header_row 启发式为真实多行表格设计。
 判断数据行的关键信号是单元格含业务代码（[A-Za-z]{2}\\d{3,}）或长文本。
-纯短中文词的数据行可能被误判为表头——这是原有行为（黄金样本已验证）。
-测试用业务代码数据行以触发正确的表头/数据分离。
+无法区分表头与数据的全文字表格退回首行表头，保留其余行。
+含数字或业务代码的表格仍使用原有多行表头识别。
 """
 
 from config import ConvertOptions
@@ -21,6 +21,15 @@ def _with_code_rows(headers, data_rows):
 
 
 class TestProcessTableData:
+    def test_all_text_table_preserves_data_rows(self):
+        data = [["项目", "状态"], ["原文内容", "保留"], ["任务历史", "本地保存"]]
+        headers, rows = process_table_data(data, DEFAULT)
+        assert headers == data[0]
+        assert rows == data[1:]
+
+    def test_blank_table_remains_empty(self):
+        assert process_table_data([["", None], [None, ""]], DEFAULT) == ([], [])
+
     def test_table_with_code_rows(self):
         """含业务代码数据行的表格：表头 + 数据行"""
         data = _with_code_rows(

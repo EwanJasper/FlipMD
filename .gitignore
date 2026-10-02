@@ -40,3 +40,8 @@ test_samples/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Local desktop packaging products
+build/
+dist/
+*.egg-info/

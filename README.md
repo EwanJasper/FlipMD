@@ -2,6 +2,18 @@
 
 一款基于 Python 的 **PDF / Word（.docx）转 Markdown** 工具，专为**中文技术文档**（含复杂表格）设计。支持**批量处理**，提供现代化暗色主题 GUI，将文档中的文字段落和表格提取为规范的 Markdown 文件。
 
+## FlipMD 新桌面客户端
+
+新增独立桌面窗口，包含导入转换、任务历史、原文/Markdown 对照和设置。macOS 优先；Word 原文提供内容预览，不还原 Word 分页。原有转换引擎、CLI/MCP 和 Tkinter 入口继续保留。
+
+```sh
+uv run --python 3.12 --frozen --extra desktop flipmd
+```
+
+本机已构建的 macOS 版本可直接双击 `dist/FlipMD.app`；从源码启动也可双击 `启动FlipMD.command`。构建方式、数据位置、OCR 可选依赖和验证范围见 [桌面客户端说明](docs/desktop.md)。
+
+Windows 打包与安装流程已准备，尚未在 Windows 环境构建验收，详见 [Windows 构建说明](docs/windows-build.md)。
+
 ## 功能特性
 
 - **双格式支持** — 同时支持 PDF（文本型）和 Word（.docx）文档
@@ -868,4 +880,3 @@ OCR 路径用 `opts`（已解析默认值），非 OCR 路径用原始 `options`
 ## v0.1.0 — 初始版本
 
 双格式（PDF + Word .docx）转 Markdown 工具，支持表格检测、跨页表格合并、智能表头处理、中文排版优化、序号位置修复、章节标题修复、页脚过滤、批量处理、暗色 GUI。详见上方「功能特性」「核心实现详解」章节。
-

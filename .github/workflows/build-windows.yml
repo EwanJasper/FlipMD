@@ -1,0 +1,61 @@
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Install build helper
+        run: python -m pip install uv==0.11.7
+      - name: Test and build installer
+        shell: pwsh
+        run: |
+          & './scripts/build_windows.ps1'
+      - name: Install into an isolated test directory and check the packaged runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Installer = Get-ChildItem dist/installers/*-setup.exe | Select-Object -First 1
+          $TestInstall = Join-Path $env:RUNNER_TEMP 'FlipMD install check'
+          $InstallLog = Join-Path $env:RUNNER_TEMP 'flipmd-install.log'
+          $Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=`"$TestInstall`" /LOG=`"$InstallLog`""
+          $Process = Start-Process -FilePath $Installer.FullName -ArgumentList $Arguments -PassThru
+          if (-not $Process.WaitForExit(300000)) { $Process.Kill(); throw 'Installer timed out.' }
+          $Process.Refresh()
+          if ($Process.ExitCode -ne 0) { Get-Content $InstallLog; throw 'Installer failed.' }
+          $Report = Join-Path $env:RUNNER_TEMP 'flipmd-bundle-check.json'
+          $Process = Start-Process -FilePath (Join-Path $TestInstall 'FlipMD.exe') -ArgumentList "--self-test `"$Report`"" -PassThru
+          if (-not $Process.WaitForExit(90000)) { $Process.Kill(); throw 'Bundle self-test timed out.' }
+          $Process.Refresh()
+          if (Test-Path $Report) { Get-Content $Report }
+          if ($Process.ExitCode -ne 0 -or -not (Test-Path $Report)) { throw 'Bundle self-test failed.' }
+          if (-not (Get-Content $Report -Raw | ConvertFrom-Json).ok) { throw 'Bundle check reported failure.' }
+      - name: Upload installer, portable build and hashes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: FlipMD-windows-x64
+          path: dist/installers/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload diagnostic reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: FlipMD-windows-build-diagnostics
+          path: |
+            ${{ runner.temp }}/flipmd-install.log
+            ${{ runner.temp }}/flipmd-bundle-check.json
+            build/desktop/FlipMD/warn-FlipMD.txt
+          if-no-files-found: ignore
+          retention-days: 7

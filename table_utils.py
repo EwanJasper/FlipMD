@@ -66,6 +66,17 @@ def process_table_data(
         else:
             break
 
+    # 全文字表格可能没有数字、业务代码等数据行信号。将所有行当成
+    # 表头会令调用方因 rows 为空而丢掉整张表；此时保留首个非空行
+    # 作为表头，其余行作为数据，优先保全内容及行列关系。
+    if data_start == len(data) and len(data) > 1:
+        first_content = next(
+            (i for i, row in enumerate(data) if any(str(cell or "").strip() for cell in row)),
+            None,
+        )
+        if first_content is not None:
+            data_start = first_content + 1
+
     header_rows = data[:data_start]
     data_rows = data[data_start:]
 
