@@ -80,7 +80,7 @@
         <div id="result-loading" class="empty-state" role="status" hidden>正在读取转换结果…</div>
         <div id="result-error" class="error-banner" role="alert" hidden></div>
         <div id="result-content" hidden>
-          <div class="result-tools"><label class="check" title="按滚动比例近似同步；不自动匹配 PDF 页码"><input id="sync-scroll" aria-label="同步滚动" type="checkbox" checked>同步滚动</label><span id="sync-note" class="quiet small">按比例近似同步 · PDF 请手动翻页</span></div>
+          <div class="result-tools"><label class="check" title="按原文与结果的全文滚动比例近似同步，不保证逐段对应"><input id="sync-scroll" aria-label="同步滚动" type="checkbox" checked>同步滚动</label><span id="sync-note" class="quiet small">按全文比例近似同步</span></div>
           <div class="compare-grid" id="compare-grid">
             <section class="preview-pane" aria-label="原文预览">
               <div class="pane-toolbar"><span id="source-kind">原文</span><label id="source-select-label" class="source-picker" hidden><span class="sr-only">选择原文</span><select id="source-select"></select></label></div>
@@ -101,7 +101,7 @@
       </section>
 
       <section id="page-settings" class="page settings-page" aria-label="设置" hidden>
-        <header class="page-heading"><div><h1>设置</h1><p class="quiet small">修改后自动保存。转换设置用于之后导入的文件。</p></div><div class="settings-save-state"><p id="settings-save-status" class="small quiet" role="status" aria-live="polite" hidden></p><button id="retry-settings" type="button" class="button" data-action="retry-settings" hidden>重试保存</button></div></header>
+        <header class="page-heading"><div><div class="settings-title"><h1>设置</h1><span id="app-version" class="app-version" hidden></span></div><p class="quiet small">修改后自动保存。转换设置用于之后导入的文件。</p></div><div class="settings-save-state"><p id="settings-save-status" class="small quiet" role="status" aria-live="polite" hidden></p><button id="retry-settings" type="button" class="button" data-action="retry-settings" hidden>重试保存</button></div></header>
         <form id="settings-form" novalidate>
           <section class="settings-section">
             <h2>文件与输出</h2>
@@ -114,7 +114,6 @@
           <div id="settings-options"></div>
           <section class="settings-section"><h2>外观</h2><div class="setting-row"><div><label for="settings-theme"><h3>主题</h3></label><p class="quiet small">选择后立即切换，并自动保存</p></div><select id="settings-theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div></section>
           <section class="settings-section"><h2>任务历史</h2><div class="setting-row"><div><h3>记录保存在这台电脑上</h3><p class="quiet small">在任务管理中删除记录，不会删除源文件与导出文件。</p></div><button type="button" class="button" data-page="tasks">管理记录</button></div></section>
-          <div class="settings-about"><img src="assets/flipmd-symbol-v3-blue.png" alt=""><div><h3 id="about-version">FlipMD</h3><p class="quiet small">PDF / Word → Markdown · 本地桌面工具</p></div></div>
         </form>
       </section>
     </main>

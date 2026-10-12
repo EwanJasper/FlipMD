@@ -65,8 +65,11 @@ def run(report_path):
                 result = service.get_result(job["items"][1]["id"])
                 if "原文" not in result["markdown"] or "<table>" not in result["html"]:
                     raise RuntimeError("Word 表格未保留。")
-                if not service.preview_source(sources[0]["id"])["data_url"].startswith("data:image/png"):
+                preview = service.preview_source(sources[0]["id"])
+                if not preview["data_url"].startswith("data:image/png"):
                     raise RuntimeError("PDF 渲染失败。")
+                if len(preview.get("page_sizes", [])) != preview["total"]:
+                    raise RuntimeError("PDF 连续预览缺少完整页面尺寸。")
                 if "<table>" not in service.preview_source(sources[1]["id"])["html"]:
                     raise RuntimeError("Word 原文预览失败。")
                 service.export_to(job["items"][1]["id"], root / "export.html", "html")

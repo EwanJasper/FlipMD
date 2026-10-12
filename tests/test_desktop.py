@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -79,6 +80,50 @@ def test_real_pdf_preview_conversion_and_no_overwrite(service, tmp_path):
     preview = service.preview_source(files[0]["id"])
     assert preview["kind"] == "PDF" and preview["total"] >= 1
     assert base64.b64decode(preview["data_url"].split(",", 1)[1]).startswith(b"\x89PNG")
+
+
+def test_pdf_continuous_preview_has_stable_sizes_and_renders_only_requested_page(service, tmp_path, monkeypatch):
+    import pdfplumber
+    import pypdfium2
+
+    path = tmp_path / "mixed-pages.pdf"
+    with pypdfium2.PdfDocument.new() as pdf:
+        for width, height, rotation, crop in [
+            (600, 800, 0, None),
+            (900, 500, 0, None),
+            (600, 800, 90, None),
+            (600, 800, 0, (40, 60, 540, 720)),
+        ]:
+            page = pdf.new_page(width, height)
+            if crop:
+                page.set_cropbox(*crop)
+            page.set_rotation(rotation)
+            page.close()
+        pdf.save(path)
+    source = service.register_files([path])[0]
+    rendered = []
+    to_image = pdfplumber.page.Page.to_image
+
+    def record_render(page, *args, **kwargs):
+        rendered.append(page.page_number)
+        return to_image(page, *args, **kwargs)
+
+    monkeypatch.setattr(pdfplumber.page.Page, "to_image", record_render)
+    first = service.preview_source(source["id"])
+    assert first["total"] == 4
+    assert len(first["page_sizes"]) == 4
+    assert rendered == [1]  # Metadata must not eagerly rasterize the whole document.
+    for number, size in enumerate(first["page_sizes"], start=1):
+        preview = first if number == 1 else service.preview_source(source["id"], number)
+        assert preview["page"] == number and preview["total"] == 4
+        with Image.open(io.BytesIO(base64.b64decode(preview["data_url"].split(",", 1)[1]))) as image:
+            assert size["width"] == pytest.approx(image.width, abs=2)
+            assert size["height"] == pytest.approx(image.height, abs=2)
+        if number > 1:
+            assert "page_sizes" not in preview
+    assert rendered == [1, 2, 3, 4]
+    with pytest.raises(ValueError, match="页码超出"):
+        service.preview_source(source["id"], 5)
 
 
 def test_docx_original_is_read_independently(service, docx_file):

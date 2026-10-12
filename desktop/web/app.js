@@ -19,7 +19,7 @@
     task: null, queue: [], selected: new Set(), jobs: [], historySelected: new Set(),
     filter: 'all', query: '', ocr: { available: false, message: '' },
     result: null, resultId: null, resultView: 'rendered', sourceId: null, syncSourceId: null,
-    sourcePage: 1, sourceTotal: 1, sourceLoading: false, resultRequest: 0,
+    sourcePage: 1, sourceTotal: 1, sourceLoading: false, pdfPageEditing: false, pdfView: null, resultRequest: 0,
     previewRequest: 0, mergeFiles: [], pending: new Set(), jobsSignature: '',
     pollTimer: null, polling: false, logSelection: '', confirmResolver: null, confirmTrigger: null
   };
@@ -117,7 +117,7 @@
   const resultPanes = [$('rendered-result'), $('markdown-result')];
   function syncScroll(from, to) {
     if (syncing.has(from)) { syncing.delete(from); return; }
-    if (!$('sync-scroll').checked || $('sync-scroll').disabled || state.sourceLoading || !state.result || to.hidden) return;
+    if (!$('sync-scroll').checked || $('sync-scroll').disabled || state.sourceLoading || !state.result || !to || to.hidden) return;
     const range = from.scrollHeight - from.clientHeight;
     const targetRange = to.scrollHeight - to.clientHeight;
     if (range <= 0 || targetRange <= 0) return;
@@ -127,7 +127,10 @@
     to.scrollTop = target;
     requestAnimationFrame(() => requestAnimationFrame(() => syncing.delete(to)));
   }
-  sourcePane.addEventListener('scroll', () => syncScroll(sourcePane, resultPanes.find(pane => !pane.hidden)), { passive: true });
+  sourcePane.addEventListener('scroll', () => {
+    schedulePDFViewport();
+    syncScroll(sourcePane, resultPanes.find(pane => !pane.hidden));
+  }, { passive: true });
   for (const pane of resultPanes) pane.addEventListener('scroll', () => syncScroll(pane, sourcePane), { passive: true });
 
   function errorMessage(error) {
@@ -422,7 +425,7 @@
   function optionFields(options, prefix) {
     const groups = optionGroups.map(([name, fields]) => `<fieldset class="option-group"><legend>${escapeHTML(name)}</legend><div class="option-grid">${fields.map(([key, label]) => `<label class="check"><input type="checkbox" name="${key}" ${options[key] ? 'checked' : ''}><span>${escapeHTML(label)}${optionHints[key] ? `<span class="option-hint">${escapeHTML(optionHints[key])}</span>` : ''}</span></label>`).join('')}</div>${name === '输出内容' ? '<p class="option-helper">图片与结果一同保存；文档元数据用于 Markdown 输出。</p>' : ''}</fieldset>`).join('');
     const range = Array.isArray(options.page_range) ? options.page_range.join('-') : '';
-    return groups + `<fieldset class="option-group"><legend>扫描件识别</legend><p class="ocr-status ${state.ocr.available ? 'available' : ''}">${escapeHTML(state.ocr.available ? 'OCR 已就绪' : 'OCR 不可用')} · ${escapeHTML(state.ocr.message || (state.ocr.available ? '本地识别引擎可用' : '未安装 PaddleOCR'))}</p><label class="check"><input type="checkbox" name="enable_ocr" ${options.enable_ocr && state.ocr.available ? 'checked' : ''} ${!state.ocr.available ? 'disabled' : ''}>扫描型 PDF 自动 OCR</label><div class="option-inline"><label for="${prefix}-ocr-language">识别语言</label><select id="${prefix}-ocr-language" name="ocr_lang" ${!state.ocr.available ? 'disabled' : ''}><option value="ch" ${options.ocr_lang === 'ch' ? 'selected' : ''}>中文</option><option value="en" ${options.ocr_lang === 'en' ? 'selected' : ''}>英文</option><option value="ch_en" ${options.ocr_lang === 'ch_en' ? 'selected' : ''}>中英混合</option></select></div></fieldset><fieldset class="option-group"><legend>PDF 页码范围</legend><div class="option-inline"><label for="${prefix}-page-range">处理页码</label><input id="${prefix}-page-range" name="page_range" type="text" value="${escapeHTML(range)}" placeholder="全部页，例如 5-10" aria-describedby="${prefix}-range-help"></div><p id="${prefix}-range-help" class="option-helper">留空表示全部页面，仅对 PDF 生效。</p></fieldset>`;
+    return groups + `<fieldset class="option-group ocr-options" aria-describedby="${prefix}-ocr-status" ${!state.ocr.available ? 'disabled' : ''}><legend>扫描件识别</legend><p id="${prefix}-ocr-status" class="ocr-status ${state.ocr.available ? 'available' : ''}">${escapeHTML(state.ocr.available ? 'OCR 已就绪' : 'OCR 不可用')} · ${escapeHTML(state.ocr.message || (state.ocr.available ? '本地识别引擎可用' : '未安装 PaddleOCR'))}</p><label class="check"><input type="checkbox" name="enable_ocr" ${options.enable_ocr && state.ocr.available ? 'checked' : ''} ${!state.ocr.available ? 'disabled' : ''}>扫描型 PDF 自动 OCR</label><div class="option-inline"><label for="${prefix}-ocr-language">识别语言</label><select id="${prefix}-ocr-language" name="ocr_lang" ${!state.ocr.available ? 'disabled' : ''}><option value="ch" ${options.ocr_lang === 'ch' ? 'selected' : ''}>中文</option><option value="en" ${options.ocr_lang === 'en' ? 'selected' : ''}>英文</option><option value="ch_en" ${options.ocr_lang === 'ch_en' ? 'selected' : ''}>中英混合</option></select></div></fieldset><fieldset class="option-group"><legend>PDF 页码范围</legend><div class="option-inline"><label for="${prefix}-page-range">处理页码</label><input id="${prefix}-page-range" name="page_range" type="text" value="${escapeHTML(range)}" placeholder="全部页，例如 5-10" aria-describedby="${prefix}-range-help"></div><p id="${prefix}-range-help" class="option-helper">留空表示全部页面，仅对 PDF 生效。</p></fieldset>`;
   }
 
   function parsePageRange(value) {
@@ -656,20 +659,31 @@
   }
 
   function setResultView(view) {
+    const previous = resultPanes.find(pane => !pane.hidden);
+    const range = previous.scrollHeight - previous.clientHeight;
+    const progress = range > 0 ? previous.scrollTop / range : 0;
     state.resultView = view;
     $('rendered-result').hidden = view !== 'rendered';
     $('markdown-result').hidden = view !== 'source';
     document.querySelectorAll('[data-result-view]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.resultView === view)));
+    const current = resultPanes.find(pane => !pane.hidden);
+    if (current !== previous) {
+      syncing.add(current);
+      current.scrollTop = progress * Math.max(0, current.scrollHeight - current.clientHeight);
+      requestAnimationFrame(() => requestAnimationFrame(() => syncing.delete(current)));
+    }
   }
 
   async function openResult(id) {
     const request = ++state.resultRequest;
     ++state.previewRequest;
+    clearPDFPreview();
     state.resultId = id;
     state.result = null;
     state.syncSourceId = null;
     $('sync-scroll').checked = false;
     $('sync-scroll').disabled = true;
+    for (const pane of resultPanes) pane.scrollTop = 0;
     state.logSelection = '';
     switchPage('result');
     const found = findItem(id);
@@ -713,7 +727,7 @@
       if (sources.length) {
         const source = sources.find(candidate => candidate.exists !== false) || sources[0];
         $('source-select').value = source.id;
-        await loadSource(source.id, 1);
+        await loadSource(source.id);
       } else {
         $('source-kind').textContent = '原文';
         $('pdf-controls').hidden = true;
@@ -731,8 +745,8 @@
     }
   }
 
-  function updatePDFControls() {
-    $('pdf-page-number').value = state.sourcePage;
+  function updatePDFControls(force = false) {
+    if (force || !state.pdfPageEditing) $('pdf-page-number').value = state.sourcePage;
     $('pdf-page-number').max = state.sourceTotal;
     $('pdf-total').textContent = `/ ${state.sourceTotal}`;
     $('pdf-prev').disabled = state.sourceLoading || state.sourcePage <= 1;
@@ -741,25 +755,165 @@
   }
 
   function applyZoom() {
-    const image = $('source-preview').querySelector('img.source-image');
-    if (!image) return;
+    const view = state.pdfView;
+    if (!view || state.page !== 'result') return;
     const zoom = $('pdf-zoom').value;
-    const pane = $('source-preview');
+    const pane = sourcePane;
     const style = getComputedStyle(pane);
     const width = pane.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-    const height = pane.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-    const fitted = zoom === 'page' ? Math.min(width, height * image.naturalWidth / (image.naturalHeight || 1)) : width;
-    image.style.width = zoom === 'fit' || zoom === 'page' ? `${Math.max(1, fitted)}px` : `${(image.naturalWidth || 800) * Number(zoom) / 100}px`;
+    const height = pane.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - 28;
+    if (width <= 0 || height <= 0) return;
+    const layout = `${width}:${height}:${zoom}`;
+    if (view.layout === layout) return;
+    const top = pane.scrollTop;
+    const anchor = view.pages[pdfPageAtOffset(view, top - view.document.offsetTop)];
+    const progress = (top - view.document.offsetTop - anchor.node.offsetTop) / anchor.node.offsetHeight;
+    for (const slot of view.pages) {
+      const fitted = zoom === 'page' ? Math.min(width, height * slot.width / slot.height) : width;
+      slot.node.style.width = `${Math.max(1, zoom === 'fit' || zoom === 'page' ? fitted : slot.width * Number(zoom) / 100)}px`;
+    }
+    view.layout = layout;
+    pane.scrollTop = top === 0 ? 0 : view.document.offsetTop + anchor.node.offsetTop + progress * anchor.node.offsetHeight;
     try { sessionStorage.setItem('flipmd-zoom', zoom); } catch { /* Storage may be unavailable. */ }
+    schedulePDFViewport();
+    syncScroll(sourcePane, resultPanes.find(pane => !pane.hidden));
+  }
+
+  function clearPDFPreview() {
+    if (state.pdfView) cancelAnimationFrame(state.pdfView.frame);
+    state.pdfView = null;
+  }
+
+  function pdfPageAtOffset(view, offset) {
+    let low = 0, high = view.pages.length - 1;
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2);
+      if (view.pages[middle].node.offsetTop <= offset) low = middle;
+      else high = middle - 1;
+    }
+    return low;
+  }
+
+  function pdfPagePlaceholder(slot) {
+    slot.status = 'empty';
+    slot.sheet.setAttribute('aria-busy', 'true');
+    slot.sheet.innerHTML = `<div class="pdf-page-status quiet small">正在加载第 ${slot.page} 页…</div>`;
+  }
+
+  async function showPDFPage(view, slot, preview) {
+    if (preview.kind !== 'PDF' || preview.page !== slot.page || preview.total !== view.pages.length) {
+      throw new Error('原文页数已变化，请刷新结果后重试。');
+    }
+    if (!/^data:image\/(png|jpeg|webp);/i.test(preview.data_url || '')) throw new Error('原文预览图像格式无效。');
+    const image = document.createElement('img');
+    image.className = 'source-image';
+    image.alt = `${view.name}，第 ${slot.page} 页`;
+    image.src = preview.data_url;
+    await image.decode();
+    if (state.pdfView !== view) return;
+    slot.sheet.replaceChildren(image);
+    slot.sheet.setAttribute('aria-busy', 'false');
+    slot.status = 'ready';
+  }
+
+  async function renderPDFPage(view, slot) {
+    slot.status = 'loading';
+    view.pending += 1;
+    try {
+      const preview = await api('preview_source', view.id, slot.page);
+      if (state.pdfView !== view) return;
+      await showPDFPage(view, slot, preview);
+    } catch (error) {
+      if (state.pdfView !== view) return;
+      slot.status = 'error';
+      slot.sheet.setAttribute('aria-busy', 'false');
+      slot.sheet.innerHTML = `<div class="pdf-page-status small"><p>第 ${slot.page} 页加载失败</p><p class="quiet">${escapeHTML(errorMessage(error))}</p><button class="button" data-action="retry-pdf-page" data-page-number="${slot.page}">重试此页</button></div>`;
+    } finally {
+      view.pending -= 1;
+      if (state.pdfView === view) schedulePDFViewport();
+    }
+  }
+
+  function schedulePDFViewport() {
+    const view = state.pdfView;
+    if (!view || view.frame || state.page !== 'result') return;
+    view.frame = requestAnimationFrame(() => {
+      view.frame = null;
+      if (state.pdfView !== view || !sourcePane.clientHeight) return;
+      const top = sourcePane.scrollTop - view.document.offsetTop;
+      const height = sourcePane.clientHeight;
+      const atEnd = sourcePane.scrollTop > 0 && Math.ceil(sourcePane.scrollTop + height) >= sourcePane.scrollHeight - 1;
+      const current = atEnd ? view.pages.length - 1 : pdfPageAtOffset(view, top + Math.min(120, height / 4));
+      state.sourcePage = current + 1;
+      updatePDFControls();
+      // All page spaces remain in the document; rasterize the viewport and a
+      // screen on either side. Keep a small nearby image cache when scrolling.
+      const first = pdfPageAtOffset(view, top - height);
+      const last = pdfPageAtOffset(view, top + height * 2);
+      const nearby = view.pages.slice(first, last + 1);
+      const cached = view.pages.filter(slot => slot.status === 'ready' && !nearby.includes(slot))
+        .sort((a, b) => Math.abs(a.page - state.sourcePage) - Math.abs(b.page - state.sourcePage));
+      for (const slot of cached.slice(Math.max(0, 10 - nearby.length))) pdfPagePlaceholder(slot);
+      const waiting = nearby.filter(slot => slot.status === 'empty')
+        .sort((a, b) => Math.abs(a.page - state.sourcePage) - Math.abs(b.page - state.sourcePage));
+      while (view.pending < 2 && waiting.length) renderPDFPage(view, waiting.shift());
+    });
+  }
+
+  function goToPDFPage(page) {
+    const view = state.pdfView;
+    if (!view || state.sourceLoading || !Number.isSafeInteger(page) || page < 1 || page > view.pages.length) return;
+    state.sourcePage = page;
+    state.pdfPageEditing = false;
+    updatePDFControls(true);
+    sourcePane.scrollTop = view.pages[page - 1].node.offsetTop;
+    schedulePDFViewport();
+    syncScroll(sourcePane, resultPanes.find(pane => !pane.hidden));
+  }
+
+  async function createPDFPreview(id, source, preview) {
+    if (!Number.isSafeInteger(preview.total) || preview.total < 1 || !Array.isArray(preview.page_sizes) ||
+        preview.page_sizes.length !== preview.total || preview.page_sizes.some(size =>
+          !Number.isFinite(size.width) || size.width <= 0 || !Number.isFinite(size.height) || size.height <= 0)) {
+      throw new Error('无法读取 PDF 页面尺寸，请重新打开文件。');
+    }
+    const documentNode = document.createElement('div');
+    documentNode.className = 'pdf-document';
+    const view = { id, name: source?.name || 'PDF', document: documentNode, pages: [], pending: 0, frame: null };
+    for (const [index, size] of preview.page_sizes.entries()) {
+      const node = document.createElement('figure');
+      node.className = 'pdf-page';
+      node.dataset.pageNumber = index + 1;
+      const sheet = document.createElement('div');
+      sheet.className = 'pdf-page-sheet';
+      sheet.style.aspectRatio = `${size.width} / ${size.height}`;
+      const label = document.createElement('figcaption');
+      label.className = 'pdf-page-label quiet small';
+      label.textContent = `第 ${index + 1} 页 / 共 ${preview.total} 页`;
+      node.append(sheet, label);
+      documentNode.append(node);
+      const slot = { node, sheet, page: index + 1, ...size };
+      pdfPagePlaceholder(slot);
+      view.pages.push(slot);
+    }
+    state.sourceTotal = preview.total;
+    state.pdfView = view;
+    sourcePane.replaceChildren(documentNode);
+    view.pages[0].status = 'loading';
+    applyZoom();
+    await showPDFPage(view, view.pages[0], preview);
   }
 
   async function loadSource(id, page = 1) {
     const request = ++state.previewRequest;
+    clearPDFPreview();
     const resultId = state.resultId;
     const source = state.result?.sources?.find(candidate => candidate.id === id);
     state.sourceId = id;
     $('sync-scroll').disabled = true;
     state.sourcePage = page;
+    state.pdfPageEditing = false;
+    state.sourceTotal = 1;
     state.sourceLoading = true;
     $('source-preview').setAttribute('aria-busy', 'true');
     $('source-kind').textContent = source?.kind === 'DOCX' ? 'DOCX 内容预览' : 'PDF 原文';
@@ -775,18 +929,11 @@
       return;
     }
     try {
-      const preview = await api('preview_source', id, page);
+      const preview = await api('preview_source', id, 1);
       if (request !== state.previewRequest || resultId !== state.resultId) return;
       if (preview.kind === 'PDF') {
-        if (!/^data:image\/(png|jpeg|webp);/i.test(preview.data_url || '')) throw new Error('原文预览图像格式无效。');
-        state.sourcePage = Number(preview.page) || 1;
-        state.sourceTotal = Number(preview.total) || 1;
-        const image = document.createElement('img');
-        image.className = 'source-image';
-        image.alt = `${source?.name || 'PDF'}，第 ${state.sourcePage} 页`;
-        image.addEventListener('load', applyZoom, { once: true });
-        image.src = preview.data_url;
-        $('source-preview').replaceChildren(image);
+        await createPDFPreview(id, source, preview);
+        if (request !== state.previewRequest || resultId !== state.resultId) return;
         $('pdf-controls').hidden = false;
       } else if (preview.kind === 'DOCX') {
         const content = document.createElement('div');
@@ -795,15 +942,12 @@
         $('source-preview').replaceChildren(content);
         $('pdf-controls').hidden = true;
       } else throw new Error('当前原文格式不支持预览。');
-      const multiPagePDF = preview.kind === 'PDF' && state.sourceTotal > 1;
       if (state.syncSourceId !== id) {
-        $('sync-scroll').checked = !multiPagePDF;
+        $('sync-scroll').checked = true;
         state.syncSourceId = id;
       }
       $('sync-scroll').disabled = false;
-      $('sync-note').textContent = multiPagePDF
-        ? '多页 PDF 默认不同步 · 开启后仅按当前页比例同步'
-        : '按比例近似同步';
+      $('sync-note').textContent = '按全文比例近似同步';
       const backendNote = String(preview.note || '').trim();
       const docxNote = preview.kind === 'DOCX' && !/不还原\s*Word\s*分页/i.test(backendNote)
         ? '源文件内容预览 · 不还原 Word 分页、字体及复杂版式。'
@@ -813,8 +957,10 @@
       $('source-note').hidden = !note;
       $('source-preview').scrollTop = 0;
       $('source-preview').scrollLeft = 0;
+      for (const pane of resultPanes) pane.scrollTop = 0;
     } catch (error) {
       if (request !== state.previewRequest || resultId !== state.resultId) return;
+      clearPDFPreview();
       $('source-preview').innerHTML = `<div class="empty-state"><h2>无法预览原文</h2><p>${escapeHTML(errorMessage(error))}</p><button class="button" data-action="retry-source">重试预览</button></div>`;
       $('pdf-controls').hidden = true;
     } finally {
@@ -822,6 +968,7 @@
         state.sourceLoading = false;
         $('source-preview').setAttribute('aria-busy', 'false');
         updatePDFControls();
+        goToPDFPage(Math.min(page, state.sourceTotal));
       }
     }
   }
@@ -914,8 +1061,13 @@
       case 'toggle-summary':
         if (state.result) openDrawer('summary'); break;
       case 'toggle-log': if (state.result) openDrawer('log'); break;
-      case 'pdf-prev': if (!state.sourceLoading && state.sourcePage > 1) await loadSource(state.sourceId, state.sourcePage - 1); break;
-      case 'pdf-next': if (!state.sourceLoading && state.sourcePage < state.sourceTotal) await loadSource(state.sourceId, state.sourcePage + 1); break;
+      case 'pdf-prev': goToPDFPage(state.sourcePage - 1); break;
+      case 'pdf-next': goToPDFPage(state.sourcePage + 1); break;
+      case 'retry-pdf-page': {
+        const slot = state.pdfView?.pages[Number(button.dataset.pageNumber) - 1];
+        if (slot?.status === 'error') { pdfPagePlaceholder(slot); schedulePDFViewport(); }
+        break;
+      }
       case 'retry-source': if (state.sourceId) await loadSource(state.sourceId, state.sourcePage); break;
       case 'copy-markdown':
         if (state.result?.markdown) await perform('copy', async () => { await api('copy_text', state.result.markdown); toast('Markdown 已复制。'); }, button); break;
@@ -970,6 +1122,7 @@
     } else if (target.id === 'task-format') { state.task.format = target.value; renderOutputLocation('task'); }
     else if (target.id === 'source-select') loadSource(target.value, 1);
     else if (target.id === 'pdf-zoom') applyZoom();
+    else if (target.id === 'sync-scroll' && target.checked) syncScroll(sourcePane, resultPanes.find(pane => !pane.hidden));
     else if (target.name === 'business_mode') {
       const form = target.closest('form');
       for (const name of ['fix_list_number_positions', 'infer_empty_headers']) form.querySelector(`[name="${name}"]`).checked = target.checked;
@@ -1027,10 +1180,13 @@
       if (path) { $('export-dialog').close(); toast(`结果已导出到 ${path}`); }
     }, $('export-submit'));
   });
+  $('pdf-page-number').addEventListener('input', () => { state.pdfPageEditing = true; });
+  $('pdf-page-number').addEventListener('blur', () => { state.pdfPageEditing = false; updatePDFControls(); });
   $('pdf-page-form').addEventListener('submit', event => {
     event.preventDefault();
     const page = Number($('pdf-page-number').value);
-    if (Number.isSafeInteger(page) && page >= 1 && page <= state.sourceTotal) loadSource(state.sourceId, page);
+    state.pdfPageEditing = false;
+    if (Number.isSafeInteger(page) && page >= 1 && page <= state.sourceTotal) goToPDFPage(page);
     else { toast(`页码应在 1 到 ${state.sourceTotal} 之间。`, true); updatePDFControls(); }
   });
   $('settings-form').addEventListener('submit', event => {
@@ -1065,7 +1221,10 @@
     try {
       const data = await api('bootstrap');
       if (!data?.settings?.options) throw new Error('默认设置读取失败。');
-      $('about-version').textContent = `FlipMD ${data.brand?.version || ''}`.trim();
+      const version = String(data.brand?.version || '').trim();
+      $('app-version').textContent = version ? `v${version}` : '';
+      $('app-version').hidden = !version;
+      $('app-version').setAttribute('aria-label', `FlipMD 版本 ${version}`);
       state.settings = clone(data.settings);
       state.settingsDraft = clone(data.settings);
       state.task = clone(data.settings);

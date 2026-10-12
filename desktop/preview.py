@@ -32,12 +32,24 @@ def pdf_page(path: Path, page: int):
         picture = original.to_image(resolution=resolution, antialias=True).original
         output = io.BytesIO()
         picture.save(output, format="PNG")
-        return {
+        result = {
             "kind": "PDF",
             "page": page,
             "total": len(pdf.pages),
             "data_url": data_url(output.getvalue(), "image/png"),
         }
+        if page == 1:
+            # Reserve every page's space before lazy rasterization so scrolling
+            # and proportional synchronization do not shift as images arrive.
+            result["page_sizes"] = []
+            for sheet in pdf.pages:
+                left, top, right, bottom = sheet.cropbox
+                scale = min(150 / 72, 1600 / max(sheet.width, sheet.height))
+                result["page_sizes"].append({
+                    "width": max(1, (right - left) * scale),
+                    "height": max(1, (bottom - top) * scale),
+                })
+        return result
 
 
 def docx_html(path: Path):
