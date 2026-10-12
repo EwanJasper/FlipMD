@@ -7,11 +7,14 @@ import tempfile
 import traceback
 from pathlib import Path
 
+from desktop.version import get_version
+
 
 def run(report_path):
     report_path = Path(report_path).resolve()
     report = {"ok": False, "platform": sys.platform, "checks": [], "ui_tested": False}
     try:
+        report["version"] = get_version()
         from docx import Document
 
         from config import ConvertOptions

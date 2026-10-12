@@ -10,7 +10,7 @@ import pytest
 from lxml import etree
 
 from markdown_writer import render
-from word_engine import parse_docx, _extract_table_grid
+from word_engine import _extract_table_grid, parse_docx
 
 SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "samples")
 

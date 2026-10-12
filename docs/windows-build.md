@@ -6,9 +6,9 @@
 
 在 Windows 构建成功后，`dist/installers/` 应生成以下文件（版本读取自 `pyproject.toml`）：
 
-- `FlipMD-0.2.0-windows-x64-setup.exe`：安装程序。
-- `FlipMD-0.2.0-windows-x64-portable.zip`：解压后运行 `FlipMD/FlipMD.exe`。
-- `FlipMD-0.2.0-windows-x64-sha256.txt`：两份产物的校验值。
+- `FlipMD-0.4.0-windows-x64-setup.exe`：安装程序。
+- `FlipMD-0.4.0-windows-x64-portable.zip`：解压后运行 `FlipMD/FlipMD.exe`。
+- `FlipMD-0.4.0-windows-x64-sha256.txt`：两份产物的校验值。
 
 这些是预期文件名，不代表本机已经存在可用的 Windows 安装包。目标为 Windows 10 1809 及以上 / Windows 11 x64；ARM64 模拟运行尚未验证。当前脚本不生成签名安装包，也不包含可选 OCR 组件。
 

@@ -45,3 +45,7 @@ Desktop.ini
 build/
 dist/
 *.egg-info/
+
+# Local browser verification artifacts
+.playwright-cli/
+output/playwright/

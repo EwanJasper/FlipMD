@@ -16,6 +16,7 @@ from block import Block
 from config import CONFIG_DIR, ConvertOptions, load_config
 from desktop.preview import PDF_LOCK, data_url, docx_html, markdown_html, pdf_page
 from desktop.store import Store
+from desktop.version import get_version
 from engine import get_page_count, parse
 from html_writer import render_html
 from image_extract import extract_images
@@ -65,7 +66,7 @@ def reserve_output(directory: Path, name: str, suffix: str):
             return candidate
         except FileExistsError:
             continue
-    raise OSError("同名结果过多，请选择其他输出目录。")
+    raise OSError("同名结果过多，请选择其他输出文件夹。")
 
 
 class JobLog(logging.Handler):
@@ -103,7 +104,7 @@ class Service:
 
     def bootstrap(self):
         return {
-            "brand": {"name": "FlipMD", "tagline": "PDF / Word → Markdown"},
+            "brand": {"name": "FlipMD", "version": get_version(), "tagline": "PDF / Word → Markdown"},
             "settings": self.store.settings(),
             "jobs": self.list_jobs(),
             "ocr": {

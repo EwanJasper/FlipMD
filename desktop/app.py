@@ -164,7 +164,7 @@ class DesktopAPI:
 
 def main():
     parser = argparse.ArgumentParser(description="FlipMD 本地桌面客户端")
-    parser.add_argument("--data-dir", type=Path, help="独立数据目录（便于测试，不影响默认历史）")
+    parser.add_argument("--data-dir", type=Path, help="独立数据文件夹（便于测试，不影响默认历史）")
     parser.add_argument("--debug", action="store_true", help="开启开发者工具")
     parser.add_argument("--self-test", type=Path, metavar="REPORT", help="验证打包依赖并写入 JSON 报告，不打开窗口")
     parser.add_argument("files", nargs="*", help="打开时导入的 PDF / DOCX 文件")

@@ -10,7 +10,7 @@
 uv run --python 3.12 --frozen --extra desktop flipmd
 ```
 
-本机已构建的 macOS 版本可直接双击 `dist/FlipMD.app`；从源码启动也可双击 `启动FlipMD.command`。构建方式、数据位置、OCR 可选依赖和验证范围见 [桌面客户端说明](docs/desktop.md)。
+本机已构建的 macOS 版本可直接双击 `dist/0.4.0/FlipMD.app`；从源码启动也可双击 `启动FlipMD.command`。构建方式、数据位置、OCR 可选依赖和验证范围见 [桌面客户端说明](docs/desktop.md)。
 
 Windows 打包与安装流程已准备，尚未在 Windows 环境构建验收，详见 [Windows 构建说明](docs/windows-build.md)。
 
@@ -502,6 +502,15 @@ MIT
 ---
 
 # 版本更新日志
+
+## v0.4.0 — FlipMD 桌面版（2026-10-12）
+
+- 新增本地桌面工作区：PDF / DOCX 转换、任务历史、原文对照、大纲摘要和日志。
+- 结果页填满窗口，双栏独立滚动；支持拖动与键盘调整宽度、适合页面和 200% 缩放、大纲与日志抽屉。
+- 新增可关闭的按比例同步滚动；多页 PDF 默认关闭，暂不提供 PDF 页码自动对应。
+- 统一 SVG 图标和界面字号，固定底部转换操作区，补充任务摘要和业务规则说明。
+- 版本号统一来自 `pyproject.toml`，显示在设置和自检报告中，并用于 macOS 应用与 Windows 安装器。
+- macOS 应用标识符保留 `local.pdf2md.desktop`；Windows 安装包仍需在 Windows 上构建和验收。
 
 ## v0.2.0 — 工程化全面升级（2026-06-17）
 

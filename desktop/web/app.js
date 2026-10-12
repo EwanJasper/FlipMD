@@ -6,6 +6,7 @@
   const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[character]));
+  const icon = name => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><use href="#icon-${name}"/></svg>`;
   const clone = value => JSON.parse(JSON.stringify(value));
   const activeStates = new Set(['queued', 'running']);
   const stateNames = {
@@ -17,12 +18,117 @@
     ready: false, booting: false, page: 'new', settings: null, settingsDraft: null,
     task: null, queue: [], selected: new Set(), jobs: [], historySelected: new Set(),
     filter: 'all', query: '', ocr: { available: false, message: '' },
-    result: null, resultId: null, resultView: 'rendered', sourceId: null,
+    result: null, resultId: null, resultView: 'rendered', sourceId: null, syncSourceId: null,
     sourcePage: 1, sourceTotal: 1, sourceLoading: false, resultRequest: 0,
     previewRequest: 0, mergeFiles: [], pending: new Set(), jobsSignature: '',
-    pollTimer: null, polling: false, logSelection: '', confirmResolver: null
+    pollTimer: null, polling: false, logSelection: '', confirmResolver: null, confirmTrigger: null
   };
   let toastTimer;
+  const settingsSave = {
+    revision: 0, savedRevision: 0, running: false, error: '',
+    rangeTimer: null, rangePending: false, rangeError: ''
+  };
+
+  function openDrawer(kind) {
+    $('summary-details').hidden = kind !== 'summary';
+    $('log-details').hidden = kind !== 'log';
+    $('drawer-title').textContent = kind === 'summary' ? '大纲与摘要' : '处理详情与日志';
+    if (!$('result-drawer').open) $('result-drawer').show();
+    $('result-drawer').scrollTop = 0;
+  }
+
+  document.addEventListener('keydown', event => {
+    // Non-modal dialogs do not get the browser's modal Escape handling.
+    if (event.key === 'Escape' && $('result-drawer').open && !document.querySelector('dialog:modal')) {
+      event.preventDefault();
+      $('result-drawer').close();
+    }
+  });
+
+  let splitPreference = 55;
+  let draggingSplit = false;
+  function saveSplit() {
+    try { localStorage.setItem('flipmd-split', String(splitPreference)); } catch { /* Optional preference. */ }
+  }
+  try {
+    const saved = Number(localStorage.getItem('flipmd-split'));
+    if (saved > 0 && saved < 100) splitPreference = saved;
+    const zoom = sessionStorage.getItem('flipmd-zoom');
+    if (['fit', 'page', '100', '125', '150', '200'].includes(zoom)) $('pdf-zoom').value = zoom;
+  } catch { /* Display preferences are optional. */ }
+
+  function setSplit(value, persist = false) {
+    const grid = $('compare-grid');
+    const width = grid.clientWidth;
+    if (!width || window.matchMedia('(max-width:760px)').matches) return;
+    const minimum = 320 / width * 100;
+    const maximum = (width - 326) / width * 100;
+    const clamped = Math.max(minimum, Math.min(maximum, value));
+    grid.style.setProperty('--split', `${clamped}%`);
+    const divider = $('pane-divider');
+    divider.setAttribute('aria-valuemin', String(Math.ceil(minimum)));
+    divider.setAttribute('aria-valuemax', String(Math.floor(maximum)));
+    divider.setAttribute('aria-valuenow', String(Math.round(clamped)));
+    divider.setAttribute('aria-valuetext', `原文 ${Math.round(clamped)}%，结果 ${Math.round(100 - clamped)}%`);
+    if (persist) {
+      splitPreference = value;
+      saveSplit();
+    }
+    applyZoom();
+  }
+  const divider = $('pane-divider');
+  divider.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    draggingSplit = true;
+    divider.setPointerCapture(event.pointerId);
+    document.body.classList.add('resizing');
+    divider.focus();
+  });
+  divider.addEventListener('pointermove', event => {
+    if (!divider.hasPointerCapture(event.pointerId)) return;
+    const bounds = $('compare-grid').getBoundingClientRect();
+    splitPreference = Math.max(1, Math.min(99, (event.clientX - bounds.left) / bounds.width * 100));
+    setSplit(splitPreference);
+  });
+  for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    divider.addEventListener(eventName, event => {
+      if (!draggingSplit) return;
+      draggingSplit = false;
+      saveSplit();
+      if (divider.hasPointerCapture(event.pointerId)) divider.releasePointerCapture(event.pointerId);
+      document.body.classList.remove('resizing');
+    });
+  }
+  divider.addEventListener('dblclick', () => setSplit(55, true));
+  divider.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return;
+    event.preventDefault();
+    const current = Number(divider.getAttribute('aria-valuenow'));
+    setSplit(event.key === 'Home' ? 55 : current + (event.key === 'ArrowLeft' ? -2 : 2), true);
+  });
+  new ResizeObserver(() => {
+    if (state.page === 'result') setSplit(splitPreference);
+  }).observe($('compare-grid'));
+  new ResizeObserver(applyZoom).observe($('source-preview'));
+
+  // Proportional only: no PDF page mapping is implied by the current output.
+  const syncing = new WeakSet();
+  const sourcePane = $('source-preview');
+  const resultPanes = [$('rendered-result'), $('markdown-result')];
+  function syncScroll(from, to) {
+    if (syncing.has(from)) { syncing.delete(from); return; }
+    if (!$('sync-scroll').checked || $('sync-scroll').disabled || state.sourceLoading || !state.result || to.hidden) return;
+    const range = from.scrollHeight - from.clientHeight;
+    const targetRange = to.scrollHeight - to.clientHeight;
+    if (range <= 0 || targetRange <= 0) return;
+    const target = Math.round(from.scrollTop / range * targetRange);
+    if (Math.abs(to.scrollTop - target) < 1) return;
+    syncing.add(to);
+    to.scrollTop = target;
+    requestAnimationFrame(() => requestAnimationFrame(() => syncing.delete(to)));
+  }
+  sourcePane.addEventListener('scroll', () => syncScroll(sourcePane, resultPanes.find(pane => !pane.hidden)), { passive: true });
+  for (const pane of resultPanes) pane.addEventListener('scroll', () => syncScroll(pane, sourcePane), { passive: true });
 
   function errorMessage(error) {
     if (typeof error === 'string') return error;
@@ -70,7 +176,18 @@
     else delete document.documentElement.dataset.theme;
   }
 
-  function directoryName(path) { return path || '原文件所在目录'; }
+  function directoryName(path) { return path || '原文件所在文件夹'; }
+
+  function renderOutputLocation(scope) {
+    const config = scope === 'task' ? state.task : state.settingsDraft;
+    const path = config.output_dir;
+    $(`${scope}-output-reset`).disabled = !path;
+    $(`${scope}-output`).textContent = path || '与原文件保存在同一文件夹';
+    if (scope === 'task') {
+      $('empty-output-label').textContent = `输出到${directoryName(path)}`;
+      $('conversion-summary').textContent = `${state.queue.length} 个文件 · ${state.task.format === 'html' ? 'HTML' : 'Markdown'} · ${directoryName(path)}`;
+    }
+  }
   function fileSize(bytes) {
     if (typeof bytes !== 'number' || !Number.isFinite(bytes)) return '';
     if (bytes < 1024) return `${bytes} B`;
@@ -88,6 +205,8 @@
   function switchPage(page) {
     if (!state.ready || !['new', 'tasks', 'result', 'settings'].includes(page)) return;
     state.page = page;
+    $('main').classList.toggle('result-active', page === 'result');
+    if ($('result-drawer').open) $('result-drawer').close();
     document.querySelectorAll('.page').forEach(element => { element.hidden = element.id !== `page-${page}`; });
     document.querySelectorAll('[data-page]').forEach(button => {
       if (!button.classList.contains('nav-button')) return;
@@ -97,7 +216,8 @@
     });
     if (page === 'new') renderQueue();
     if (page === 'tasks') renderJobs();
-    window.scrollTo({ top: 0, behavior: 'instant' });
+    if (page === 'result') requestAnimationFrame(() => setSplit(splitPreference));
+    $('main').scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }
 
   function receiveFiles(files) {
@@ -134,14 +254,13 @@
     $('queue-count').textContent = `已添加 ${state.queue.length} 个文件`;
     $('queue-list').innerHTML = state.queue.map(file => {
       const size = fileSize(file.size);
-      return `<div class="file-row"><input type="checkbox" data-queue-id="${escapeHTML(file.id)}" aria-label="选择 ${escapeHTML(file.name)}" ${state.selected.has(file.id) ? 'checked' : ''}>${fileMarkup(file, size ? `${size} · ${file.path}` : file.path)}<button class="icon-button" data-action="remove-one" data-id="${escapeHTML(file.id)}" aria-label="移除 ${escapeHTML(file.name)}">×</button></div>`;
+      return `<div class="file-row"><input type="checkbox" data-queue-id="${escapeHTML(file.id)}" aria-label="选择 ${escapeHTML(file.name)}" ${state.selected.has(file.id) ? 'checked' : ''}>${fileMarkup(file, size ? `${size} · ${file.path}` : file.path)}<button class="icon-button" data-action="remove-one" data-id="${escapeHTML(file.id)}" aria-label="移除 ${escapeHTML(file.name)}">${icon('close')}</button></div>`;
     }).join('');
     $('queue-selection').textContent = state.selected.size ? `已选择 ${state.selected.size} 个` : '可选择文件合并或提取大纲';
     $('queue-select-all').checked = hasFiles && state.selected.size === state.queue.length;
     $('queue-select-all').indeterminate = state.selected.size > 0 && state.selected.size < state.queue.length;
     $('task-format').value = state.task.format;
-    $('task-output').textContent = directoryName(state.task.output_dir);
-    $('empty-output-label').textContent = `输出到${directoryName(state.task.output_dir)}`;
+    renderOutputLocation('task');
     updateAvailability();
   }
 
@@ -154,12 +273,8 @@
     $('queue-remove').disabled = !state.selected.size || submitting;
     $('merge-submit').disabled = submitting || state.mergeFiles.length < 2;
     $('history-merge').disabled = state.historySelected.size < 2 || submitting;
-    $('save-settings').disabled = !state.ready || state.pending.has('save-settings');
     document.querySelectorAll('[data-action="choose-files"], [data-action="choose-folder"]').forEach(button => {
       button.disabled = !state.ready || state.pending.has('choose-files') || submitting;
-    });
-    document.querySelectorAll('[data-action="summary-history"]').forEach(button => {
-      button.disabled = !state.historySelected.size || submitting;
     });
   }
 
@@ -301,12 +416,25 @@
     ['业务文档规则', [['business_mode', '启用业务模式'], ['fix_list_number_positions', '修复序号位置'], ['infer_empty_headers', '推断空表头']]],
     ['输出内容', [['extract_images', '提取文档图片'], ['add_front_matter', '添加 YAML 文档元数据']]]
   ];
+  const optionHints = { business_mode: '同时启用下列两项业务规则，可再单独调整。', fix_list_number_positions: '修复特定业务文档中错位的序号及表代码。', infer_empty_headers: '当某列非空内容一致时，用该内容补全空表头。' };
   const optionKeys = optionGroups.flatMap(([, fields]) => fields.map(([key]) => key)).concat('enable_ocr');
 
   function optionFields(options, prefix) {
-    const groups = optionGroups.map(([name, fields]) => `<fieldset class="option-group"><legend>${escapeHTML(name)}</legend><div class="option-grid">${fields.map(([key, label]) => `<label class="check"><input type="checkbox" name="${key}" ${options[key] ? 'checked' : ''}><span>${escapeHTML(label)}</span></label>`).join('')}</div>${name === '输出内容' ? '<p class="option-helper">图片与结果一同保存；文档元数据用于 Markdown 输出。</p>' : ''}</fieldset>`).join('');
+    const groups = optionGroups.map(([name, fields]) => `<fieldset class="option-group"><legend>${escapeHTML(name)}</legend><div class="option-grid">${fields.map(([key, label]) => `<label class="check"><input type="checkbox" name="${key}" ${options[key] ? 'checked' : ''}><span>${escapeHTML(label)}${optionHints[key] ? `<span class="option-hint">${escapeHTML(optionHints[key])}</span>` : ''}</span></label>`).join('')}</div>${name === '输出内容' ? '<p class="option-helper">图片与结果一同保存；文档元数据用于 Markdown 输出。</p>' : ''}</fieldset>`).join('');
     const range = Array.isArray(options.page_range) ? options.page_range.join('-') : '';
     return groups + `<fieldset class="option-group"><legend>扫描件识别</legend><p class="ocr-status ${state.ocr.available ? 'available' : ''}">${escapeHTML(state.ocr.available ? 'OCR 已就绪' : 'OCR 不可用')} · ${escapeHTML(state.ocr.message || (state.ocr.available ? '本地识别引擎可用' : '未安装 PaddleOCR'))}</p><label class="check"><input type="checkbox" name="enable_ocr" ${options.enable_ocr && state.ocr.available ? 'checked' : ''} ${!state.ocr.available ? 'disabled' : ''}>扫描型 PDF 自动 OCR</label><div class="option-inline"><label for="${prefix}-ocr-language">识别语言</label><select id="${prefix}-ocr-language" name="ocr_lang" ${!state.ocr.available ? 'disabled' : ''}><option value="ch" ${options.ocr_lang === 'ch' ? 'selected' : ''}>中文</option><option value="en" ${options.ocr_lang === 'en' ? 'selected' : ''}>英文</option><option value="ch_en" ${options.ocr_lang === 'ch_en' ? 'selected' : ''}>中英混合</option></select></div></fieldset><fieldset class="option-group"><legend>PDF 页码范围</legend><div class="option-inline"><label for="${prefix}-page-range">处理页码</label><input id="${prefix}-page-range" name="page_range" type="text" value="${escapeHTML(range)}" placeholder="全部页，例如 5-10" aria-describedby="${prefix}-range-help"></div><p id="${prefix}-range-help" class="option-helper">留空表示全部页面，仅对 PDF 生效。</p></fieldset>`;
+  }
+
+  function parsePageRange(value) {
+    const text = value.trim();
+    if (!text) return null;
+    const match = text.match(/^(\d+)\s*-\s*(\d+)$/);
+    const start = match ? Number(match[1]) : 0;
+    const end = match ? Number(match[2]) : 0;
+    if (!match || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start) {
+      throw new Error('请输入有效页码范围，例如 5-10；页码应为正整数且结束页不小于开始页。');
+    }
+    return [start, end];
   }
 
   function readOptions(container, original) {
@@ -317,19 +445,12 @@
     }
     options.ocr_lang = container.querySelector('[name="ocr_lang"]').value;
     const rangeInput = container.querySelector('[name="page_range"]');
-    const text = rangeInput.value.trim();
     rangeInput.setCustomValidity('');
-    if (!text) options.page_range = null;
-    else {
-      const match = text.match(/^(\d+)\s*-\s*(\d+)$/);
-      const start = match ? Number(match[1]) : 0;
-      const end = match ? Number(match[2]) : 0;
-      if (!match || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start) {
-        rangeInput.setCustomValidity('请输入有效页码范围，例如 5-10；页码应为正整数且结束页不小于开始页。');
-        rangeInput.reportValidity();
-        throw new Error('页码范围无效，请使用 5-10 这样的格式。');
-      }
-      options.page_range = [start, end];
+    try { options.page_range = parsePageRange(rangeInput.value); }
+    catch (error) {
+      rangeInput.setCustomValidity(errorMessage(error));
+      rangeInput.reportValidity();
+      throw error;
     }
     return options;
   }
@@ -337,10 +458,113 @@
   function renderSettings() {
     const settings = state.settingsDraft;
     if (!settings) return;
-    $('settings-output').textContent = directoryName(settings.output_dir);
+    renderOutputLocation('settings');
     $('settings-format').value = settings.format;
     $('settings-theme').value = settings.theme || 'system';
     $('settings-options').innerHTML = optionFields(settings.options, 'defaults');
+    const rangeError = document.createElement('p');
+    rangeError.id = 'defaults-range-error';
+    rangeError.className = 'form-error';
+    rangeError.setAttribute('role', 'status');
+    rangeError.hidden = true;
+    $('defaults-range-help').after(rangeError);
+    $('defaults-page-range').setAttribute('aria-describedby', 'defaults-range-help defaults-range-error');
+    renderSettingsStatus();
+  }
+
+  function renderSettingsStatus() {
+    const status = $('settings-save-status');
+    const saving = settingsSave.running || settingsSave.savedRevision < settingsSave.revision;
+    let message = settingsSave.revision ? '已自动保存' : '';
+    let kind = 'saved';
+    if (settingsSave.error) { message = `未保存：${settingsSave.error}`; kind = 'error'; }
+    else if (saving) { message = '正在保存…'; kind = 'saving'; }
+    else if (settingsSave.rangePending) { message = '等待页码输入完成…'; kind = 'saving'; }
+    else if (settingsSave.rangeError) { message = '页码范围未保存，其他设置已保存'; kind = 'error'; }
+    status.textContent = message;
+    status.hidden = !message;
+    status.dataset.state = kind;
+    $('retry-settings').hidden = !settingsSave.error;
+    $('retry-settings').disabled = settingsSave.running;
+  }
+
+  function settingsChanged() {
+    settingsSave.revision += 1;
+    settingsSave.error = '';
+    if (!state.queue.length) state.task = clone(state.settingsDraft);
+    persistSettings();
+  }
+
+  async function persistSettings() {
+    if (!state.ready || settingsSave.running) return;
+    settingsSave.running = true;
+    settingsSave.error = '';
+    renderSettingsStatus();
+    try {
+      // Only one write may run at a time. New changes are saved next, and an
+      // older response must never replace the current form or theme.
+      while (settingsSave.savedRevision < settingsSave.revision) {
+        const revision = settingsSave.revision;
+        const draft = clone(state.settingsDraft);
+        try {
+          state.settings = clone(await api('save_settings', draft));
+          settingsSave.savedRevision = revision;
+        } catch (error) {
+          if (revision !== settingsSave.revision) continue;
+          settingsSave.error = errorMessage(error);
+          toast(`设置未保存：${settingsSave.error}。请在设置页重试。`, true);
+          break;
+        }
+      }
+    } finally {
+      settingsSave.running = false;
+      renderSettingsStatus();
+    }
+  }
+
+  function saveSettingsRange() {
+    clearTimeout(settingsSave.rangeTimer);
+    settingsSave.rangePending = false;
+    const input = $('defaults-page-range');
+    const error = $('defaults-range-error');
+    let range;
+    try { range = parsePageRange(input.value); }
+    catch (failure) {
+      settingsSave.rangeError = errorMessage(failure);
+      input.setCustomValidity(settingsSave.rangeError);
+      input.setAttribute('aria-invalid', 'true');
+      error.textContent = `${settingsSave.rangeError} 此项未保存，继续使用上次有效范围。`;
+      error.hidden = false;
+      renderSettingsStatus();
+      return;
+    }
+    settingsSave.rangeError = '';
+    input.setCustomValidity('');
+    input.removeAttribute('aria-invalid');
+    error.hidden = true;
+    if (JSON.stringify(range) !== JSON.stringify(state.settingsDraft.options.page_range)) {
+      state.settingsDraft.options.page_range = range;
+      settingsChanged();
+    }
+    renderSettingsStatus();
+  }
+
+  function changeSetting(target) {
+    if (!state.ready) return;
+    if (target.name === 'page_range') { saveSettingsRange(); return; }
+    const previous = JSON.stringify(state.settingsDraft);
+    if (target.id === 'settings-theme') {
+      state.settingsDraft.theme = target.value;
+      applyTheme(target.value);
+    } else if (target.id === 'settings-format') state.settingsDraft.format = target.value;
+    else if (target.name === 'ocr_lang') state.settingsDraft.options.ocr_lang = target.value;
+    else if (optionKeys.includes(target.name)) {
+      state.settingsDraft.options[target.name] = target.checked;
+      if (target.name === 'business_mode') {
+        for (const name of ['fix_list_number_positions', 'infer_empty_headers']) state.settingsDraft.options[name] = target.checked;
+      }
+    }
+    if (previous !== JSON.stringify(state.settingsDraft)) settingsChanged();
   }
 
   function openTaskOptions() {
@@ -349,15 +573,39 @@
     $('options-dialog').showModal();
   }
 
-  function confirmAction(title, message, label = '确认') {
+  function restoreConfirmationFocus(trigger) {
+    const candidates = [trigger];
+    if (trigger?.dataset.action) {
+      // Polling may have replaced the original button while the dialog was open.
+      candidates.push(...Array.from(document.querySelectorAll('[data-action]')).filter(button =>
+        button.dataset.action === trigger.dataset.action && button.dataset.id === trigger.dataset.id));
+    }
+    if (state.page === 'tasks') candidates.push($('task-search'));
+    if (state.page === 'new') candidates.push(document.querySelector('#import-empty [data-action="choose-files"]'));
+    candidates.find(element => element?.isConnected && !element.disabled && element.getClientRects().length)?.focus({ preventScroll: true });
+  }
+
+  function confirmAction(title, message, label = '确认', trigger = document.activeElement) {
+    if (state.confirmResolver) return Promise.resolve(false);
     return new Promise(resolve => {
-      state.confirmResolver?.(false);
       state.confirmResolver = resolve;
+      state.confirmTrigger = trigger;
       $('confirm-title').textContent = title;
       $('confirm-message').textContent = message;
       $('confirm-submit').textContent = label;
       $('confirm-dialog').showModal();
+      $('confirm-cancel').focus({ preventScroll: true });
     });
+  }
+
+  function closeConfirmation(confirmed = false) {
+    const resolve = state.confirmResolver;
+    const trigger = state.confirmTrigger;
+    state.confirmResolver = null;
+    state.confirmTrigger = null;
+    $('confirm-dialog').close();
+    restoreConfirmationFocus(trigger);
+    resolve?.(confirmed);
   }
 
   function openMerge(files) {
@@ -374,7 +622,7 @@
   }
 
   function renderMergeList() {
-    $('merge-list').innerHTML = state.mergeFiles.map((file, index) => `<div class="merge-row"><span class="merge-order">${index + 1}</span><span class="merge-name">${escapeHTML(file.name)}</span><button type="button" class="icon-button" data-action="merge-up" data-index="${index}" aria-label="上移 ${escapeHTML(file.name)}" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" class="icon-button" data-action="merge-down" data-index="${index}" aria-label="下移 ${escapeHTML(file.name)}" ${index === state.mergeFiles.length - 1 ? 'disabled' : ''}>↓</button></div>`).join('');
+    $('merge-list').innerHTML = state.mergeFiles.map((file, index) => `<div class="merge-row"><span class="merge-order">${index + 1}</span><span class="merge-name">${escapeHTML(file.name)}</span><button type="button" class="icon-button" data-action="merge-up" data-index="${index}" aria-label="上移 ${escapeHTML(file.name)}" ${index === 0 ? 'disabled' : ''}>${icon('up')}</button><button type="button" class="icon-button" data-action="merge-down" data-index="${index}" aria-label="下移 ${escapeHTML(file.name)}" ${index === state.mergeFiles.length - 1 ? 'disabled' : ''}>${icon('down')}</button></div>`).join('');
     updateAvailability();
   }
 
@@ -389,7 +637,7 @@
       state.queue = [];
       state.selected.clear();
       state.historySelected.clear();
-      state.task = clone(state.settings);
+      state.task = clone(state.settingsDraft);
       state.filter = 'all';
       state.query = '';
       $('task-search').value = '';
@@ -419,6 +667,9 @@
     ++state.previewRequest;
     state.resultId = id;
     state.result = null;
+    state.syncSourceId = null;
+    $('sync-scroll').checked = false;
+    $('sync-scroll').disabled = true;
     state.logSelection = '';
     switchPage('result');
     const found = findItem(id);
@@ -435,18 +686,19 @@
       const item = result.item || found?.item || {};
       $('result-title').textContent = item.name || '转换结果';
       $('result-subtitle').textContent = item.output_path || item.path || '';
+      $('result-subtitle').title = $('result-subtitle').textContent;
+      $('result-title').title = $('result-title').textContent;
       $('result-state').className = `status ${Object.hasOwn(stateNames, item.state) ? item.state : 'completed'}`;
       $('result-state').textContent = stateNames[item.state] || '已完成';
       const hasContent = Boolean(result.markdown || result.html);
       $('export-result').disabled = !hasContent;
       $('copy-markdown').disabled = !result.markdown;
       $('reveal-result').disabled = !item.output_path;
-      $('rendered-result').innerHTML = result.html || '<p class="quiet">没有可阅读的转换结果。可展开下方大纲与处理日志。</p>';
+      $('rendered-result').innerHTML = result.html || '<p class="quiet">没有可阅读的转换结果。可打开大纲与摘要或日志查看详情。</p>';
       $('markdown-result').textContent = result.markdown || '没有 Markdown 内容。';
       $('result-logs').textContent = result.logs || '没有处理日志。';
       renderSummary(result.summary);
-      $('summary-details').open = found?.job.mode === 'summary';
-      $('log-details').open = Boolean(item.error) || ['failed', 'partial', 'interrupted'].includes(item.state);
+      if (item.state === 'failed') openDrawer('log');
       if (item.error) {
         $('result-error').hidden = false;
         $('result-error').classList.toggle('warning-banner', item.state === 'completed');
@@ -457,6 +709,7 @@
       $('source-select-label').hidden = sources.length < 2;
       $('result-content').hidden = false;
       setResultView(state.resultView);
+      requestAnimationFrame(() => setSplit(splitPreference));
       if (sources.length) {
         const source = sources.find(candidate => candidate.exists !== false) || sources[0];
         $('source-select').value = source.id;
@@ -491,7 +744,13 @@
     const image = $('source-preview').querySelector('img.source-image');
     if (!image) return;
     const zoom = $('pdf-zoom').value;
-    image.style.width = zoom === 'fit' ? '100%' : `${(image.naturalWidth || 800) * Number(zoom) / 100}px`;
+    const pane = $('source-preview');
+    const style = getComputedStyle(pane);
+    const width = pane.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const height = pane.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    const fitted = zoom === 'page' ? Math.min(width, height * image.naturalWidth / (image.naturalHeight || 1)) : width;
+    image.style.width = zoom === 'fit' || zoom === 'page' ? `${Math.max(1, fitted)}px` : `${(image.naturalWidth || 800) * Number(zoom) / 100}px`;
+    try { sessionStorage.setItem('flipmd-zoom', zoom); } catch { /* Storage may be unavailable. */ }
   }
 
   async function loadSource(id, page = 1) {
@@ -499,6 +758,7 @@
     const resultId = state.resultId;
     const source = state.result?.sources?.find(candidate => candidate.id === id);
     state.sourceId = id;
+    $('sync-scroll').disabled = true;
     state.sourcePage = page;
     state.sourceLoading = true;
     $('source-preview').setAttribute('aria-busy', 'true');
@@ -535,6 +795,15 @@
         $('source-preview').replaceChildren(content);
         $('pdf-controls').hidden = true;
       } else throw new Error('当前原文格式不支持预览。');
+      const multiPagePDF = preview.kind === 'PDF' && state.sourceTotal > 1;
+      if (state.syncSourceId !== id) {
+        $('sync-scroll').checked = !multiPagePDF;
+        state.syncSourceId = id;
+      }
+      $('sync-scroll').disabled = false;
+      $('sync-note').textContent = multiPagePDF
+        ? '多页 PDF 默认不同步 · 开启后仅按当前页比例同步'
+        : '按比例近似同步';
       const backendNote = String(preview.note || '').trim();
       const docxNote = preview.kind === 'DOCX' && !/不还原\s*Word\s*分页/i.test(backendNote)
         ? '源文件内容预览 · 不还原 Word 分页、字体及复杂版式。'
@@ -574,27 +843,35 @@
         }, button); break;
       case 'task-options': openTaskOptions(); break;
       case 'clear-queue':
-        if (await confirmAction('清空导入列表？', '只移除当前导入的文件，不会删除磁盘上的源文件。', '清空列表')) {
-          state.queue = []; state.selected.clear(); renderQueue();
+        if (await confirmAction('清空导入列表？', '只移除当前导入的文件，不会删除磁盘上的源文件。', '清空列表', button)) {
+          state.queue = []; state.selected.clear(); state.task = clone(state.settingsDraft); renderQueue();
+          restoreConfirmationFocus(button);
         } break;
       case 'remove-queue':
-        state.queue = state.queue.filter(file => !state.selected.has(file.id)); state.selected.clear(); renderQueue(); break;
+        state.queue = state.queue.filter(file => !state.selected.has(file.id)); state.selected.clear();
+        if (!state.queue.length) state.task = clone(state.settingsDraft);
+        renderQueue(); break;
       case 'remove-one':
-        state.queue = state.queue.filter(file => file.id !== id); state.selected.delete(id); renderQueue(); break;
+        state.queue = state.queue.filter(file => file.id !== id); state.selected.delete(id);
+        if (!state.queue.length) state.task = clone(state.settingsDraft);
+        renderQueue(); break;
       case 'choose-task-output':
       case 'choose-default-output':
         await perform('choose-output', async () => {
           const path = await api('choose_output');
-          if (path === null || path === undefined) return;
-          if (action === 'choose-task-output') { state.task.output_dir = path; renderQueue(); }
-          else { state.settingsDraft.output_dir = path; $('settings-output').textContent = directoryName(path); }
+          if (typeof path !== 'string' || !path) return;
+          const scope = action === 'choose-task-output' ? 'task' : 'settings';
+          const config = scope === 'task' ? state.task : state.settingsDraft;
+          config.output_dir = path;
+          renderOutputLocation(scope);
+          if (scope === 'settings') settingsChanged();
         }, button); break;
-      case 'reset-task-output': state.task.output_dir = ''; renderQueue(); break;
-      case 'reset-default-output': state.settingsDraft.output_dir = ''; $('settings-output').textContent = directoryName(''); break;
+      case 'reset-task-output': state.task.output_dir = ''; renderOutputLocation('task'); break;
+      case 'reset-default-output': state.settingsDraft.output_dir = ''; renderOutputLocation('settings'); settingsChanged(); break;
+      case 'retry-settings': await persistSettings(); break;
       case 'start-convert': await startJob(state.queue); break;
       case 'summary-queue': await startJob(state.queue.filter(file => state.selected.has(file.id)), 'summary'); break;
       case 'merge-queue': openMerge(state.queue.filter(file => state.selected.has(file.id))); break;
-      case 'summary-history': await startJob(selectedHistoryFiles(), 'summary'); break;
       case 'merge-history': openMerge(selectedHistoryFiles()); break;
       case 'clear-history-selection': state.historySelected.clear(); renderJobs(); break;
       case 'merge-up':
@@ -615,14 +892,28 @@
       case 'delete-job': {
         const job = state.jobs.find(candidate => candidate.id === id);
         if (!job || activeStates.has(job.state)) { toast('处理中和等待中的任务不能删除。'); break; }
-        if (await confirmAction('删除这条任务记录？', '仅删除历史记录。源文件和导出文件都会保留。', '删除记录')) {
-          await perform(`delete-${id}`, async () => { await api('delete_job', id); await refreshJobs(); toast('任务记录已删除，磁盘文件仍然保留。'); });
+        const position = Array.from(document.querySelectorAll('[data-action="delete-job"]')).indexOf(button);
+        if (await confirmAction('删除这条任务记录？', '仅删除历史记录。源文件和导出文件都会保留。', '删除记录', button)) {
+          const deleted = await perform(`delete-${id}`, async () => {
+            await api('delete_job', id);
+            await refreshJobs();
+            toast('任务记录已删除，磁盘文件仍然保留。');
+            return true;
+          });
+          // The deleted record's button no longer exists. Keep the same place
+          // in the list without stealing focus if the user has moved elsewhere.
+          if (deleted && state.page === 'tasks' && document.activeElement === document.body) {
+            const buttons = document.querySelectorAll('[data-action="delete-job"]');
+            const next = buttons[Math.max(0, Math.min(position, buttons.length - 1))];
+            (next || $('task-search')).focus({ preventScroll: true });
+          }
         } break;
       }
       case 'open-result': await openResult(id); break;
       case 'refresh-result': if (state.resultId) await openResult(state.resultId); break;
       case 'toggle-summary':
-        if (state.result) { $('summary-details').open = !$('summary-details').open; if ($('summary-details').open) $('summary-details').scrollIntoView({ block: 'nearest' }); } break;
+        if (state.result) openDrawer('summary'); break;
+      case 'toggle-log': if (state.result) openDrawer('log'); break;
       case 'pdf-prev': if (!state.sourceLoading && state.sourcePage > 1) await loadSource(state.sourceId, state.sourcePage - 1); break;
       case 'pdf-next': if (!state.sourceLoading && state.sourcePage < state.sourceTotal) await loadSource(state.sourceId, state.sourcePage + 1); break;
       case 'retry-source': if (state.sourceId) await loadSource(state.sourceId, state.sourcePage); break;
@@ -654,7 +945,12 @@
     }
     const button = event.target.closest('button');
     if (!button || button.disabled) return;
-    if (button.hasAttribute('data-close-dialog')) { button.closest('dialog')?.close(); return; }
+    if (button.hasAttribute('data-close-dialog')) {
+      const dialog = button.closest('dialog');
+      if (dialog === $('confirm-dialog')) closeConfirmation();
+      else dialog?.close();
+      return;
+    }
     if (button.dataset.page) { switchPage(button.dataset.page); return; }
     if (button.dataset.filter) { state.filter = button.dataset.filter; renderJobs(); return; }
     if (button.dataset.resultView) { setResultView(button.dataset.resultView); return; }
@@ -671,18 +967,29 @@
       renderJobs();
     } else if (target.id === 'queue-select-all') {
       state.selected = target.checked ? new Set(state.queue.map(file => file.id)) : new Set(); renderQueue();
-    } else if (target.id === 'task-format') state.task.format = target.value;
-    else if (target.id === 'settings-format') state.settingsDraft.format = target.value;
+    } else if (target.id === 'task-format') { state.task.format = target.value; renderOutputLocation('task'); }
     else if (target.id === 'source-select') loadSource(target.value, 1);
     else if (target.id === 'pdf-zoom') applyZoom();
     else if (target.name === 'business_mode') {
       const form = target.closest('form');
       for (const name of ['fix_list_number_positions', 'infer_empty_headers']) form.querySelector(`[name="${name}"]`).checked = target.checked;
     }
+    if (target.closest('#settings-form')) changeSetting(target);
   });
 
   $('task-search').addEventListener('input', event => { state.query = event.target.value; renderJobs(); });
-  document.addEventListener('input', event => { if (event.target.name === 'page_range') event.target.setCustomValidity(''); });
+  document.addEventListener('input', event => {
+    if (event.target.name !== 'page_range') return;
+    event.target.setCustomValidity('');
+    if (event.target.id !== 'defaults-page-range') return;
+    clearTimeout(settingsSave.rangeTimer);
+    settingsSave.rangePending = true;
+    settingsSave.rangeError = '';
+    event.target.removeAttribute('aria-invalid');
+    $('defaults-range-error').hidden = true;
+    renderSettingsStatus();
+    settingsSave.rangeTimer = setTimeout(saveSettingsRange, 350);
+  });
   document.addEventListener('selectionchange', () => { const selection = currentLogSelection(); if (selection) state.logSelection = selection; });
 
   $('options-form').addEventListener('submit', event => {
@@ -699,13 +1006,19 @@
   });
   $('confirm-form').addEventListener('submit', event => {
     event.preventDefault();
-    const resolve = state.confirmResolver;
-    state.confirmResolver = null;
-    $('confirm-dialog').close();
-    resolve?.(true);
+    closeConfirmation(true);
   });
-  $('confirm-dialog').addEventListener('close', () => {
-    state.confirmResolver?.(false); state.confirmResolver = null;
+  $('confirm-dialog').addEventListener('keydown', event => {
+    if (event.key !== 'Tab') return;
+    const buttons = Array.from($('confirm-dialog').querySelectorAll('button:not(:disabled)'));
+    const index = buttons.indexOf(document.activeElement);
+    event.preventDefault();
+    const next = (index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length;
+    buttons[next]?.focus();
+  });
+  $('confirm-dialog').addEventListener('cancel', event => {
+    event.preventDefault();
+    closeConfirmation();
   });
   $('export-form').addEventListener('submit', event => {
     event.preventDefault();
@@ -722,19 +1035,8 @@
   });
   $('settings-form').addEventListener('submit', event => {
     event.preventDefault();
-    perform('save-settings', async () => {
-      const draft = clone(state.settingsDraft);
-      draft.options = readOptions($('settings-options'), draft.options);
-      draft.format = $('settings-format').value;
-      draft.theme = $('settings-theme').value;
-      const saved = await api('save_settings', draft);
-      state.settings = clone(saved);
-      state.settingsDraft = clone(saved);
-      if (!state.queue.length) state.task = clone(saved);
-      applyTheme(saved.theme);
-      renderSettings();
-      toast('默认设置已保存，将应用于之后建立的任务。');
-    }, $('save-settings'));
+    saveSettingsRange();
+    persistSettings();
   });
 
   for (const eventName of ['dragenter', 'dragover']) {
@@ -763,6 +1065,7 @@
     try {
       const data = await api('bootstrap');
       if (!data?.settings?.options) throw new Error('默认设置读取失败。');
+      $('about-version').textContent = `FlipMD ${data.brand?.version || ''}`.trim();
       state.settings = clone(data.settings);
       state.settingsDraft = clone(data.settings);
       state.task = clone(data.settings);
@@ -792,7 +1095,7 @@
     if (state.ready || state.booting) return;
     if (window.pywebview?.api) { initialize(); return; }
     $('connection-title').textContent = '请在 FlipMD 桌面窗口中打开';
-    $('connection-message').textContent = '浏览器页面无法访问本地转换服务。请在项目目录运行下方命令。';
+    $('connection-message').textContent = '浏览器页面无法访问本地转换服务。请在项目文件夹运行下方命令。';
     $('launch-command').hidden = false;
     $('app').setAttribute('aria-busy', 'false');
   }, 1800);
