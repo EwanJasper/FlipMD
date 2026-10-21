@@ -10,7 +10,7 @@
 
 用法：
     uv run python mcp_server.py          # 直接运行（stdio）
-    pw-to-markdown-mcp                   # 通过入口点运行
+    flipmd-mcp                           # 通过入口点运行
     uv run mcp dev mcp_server.py         # 用 MCP Inspector 调试
 """
 
@@ -40,7 +40,7 @@ from summarize import summarize
 from word_engine import parse_docx
 
 mcp = MCPServer(
-    "pw-to-markdown",
+    "flipmd",
     title="PDF & Word -> Markdown",
     description="将 PDF / Word(.docx)文档转换为 Markdown 或 HTML，支持表格提取、跨页合并、中文排版优化、扫描件 OCR。",
 )

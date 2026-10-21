@@ -1,6 +1,6 @@
 [project]
 name = "pdf-to-markdown"
-version = "0.4.0"
+version = "0.5.0"
 description = "PDF & Word to Markdown converter with table support, OCR, and CLI"
 requires-python = ">=3.10"
 dependencies = [
@@ -32,7 +32,7 @@ desktop = [
 pdf2md = "cli:main"
 pdf2md-gui = "main:main"
 flipmd = "desktop.app:main"
-pw-to-markdown-mcp = "mcp_server:main"  # 启动 MCP server（stdio）
+flipmd-mcp = "mcp_server:main"  # 启动 MCP server（stdio）
 
 [build-system]
 requires = ["setuptools>=75"]
