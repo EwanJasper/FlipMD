@@ -382,12 +382,14 @@ def _header_similarity(a: list[str], b: list[str]) -> float:
 # ── 字号 → 标题级别检测 ─────────────────────────────────────────
 
 # 目录点线（". . . . 8"）与超长省略号（"…….."）
-_DOT_LEADER_SPACED_RE = re.compile(r'(?:\.\s+){2,}\.[ \t]*')
+_DOT_LEADER_SPACED_RE = re.compile(r'\s*(?:\.\s+){2,}\.[ \t]*')
 _DOT_LEADER_UNSPACED_RE = re.compile(r'\.{6,}')
+# 目录/索引条目特征检测：条目名与页码之间的引导点线（检测用，不替换）
+_HAS_DOT_LEADER_RE = re.compile(r'(?:\.\s+){2,}\.|\.{4,}')
 
 
 def _collapse_dot_leaders(text: str) -> str:
-    """折叠目录引导点线：". . . . 8" → " 8"，超长点串归一为省略号
+    """折叠目录引导点线："layout . . . . 8" → "layout 8"，超长点串归一为省略号
 
     仅处理 ≥3 个以空格间隔的点（正常省略号 "..." 无空格，不受影响）。
     """

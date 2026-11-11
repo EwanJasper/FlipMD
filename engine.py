@@ -16,6 +16,7 @@ from block import Block, PdfEmptyError, PdfEncryptedError
 from config import ConvertOptions
 from postprocess import (
     _BULLET_PREFIX_RE,
+    _HAS_DOT_LEADER_RE,
     _HEADING_NUM_PREFIX_RE,
     _PARAGRAPH_START_RE,
     _SENTENCE_END_RE,
@@ -425,6 +426,13 @@ def _merge_indented_continuations(
 
         # 上一行以句末标点结尾 → 不合并
         if _SENTENCE_END_RE.search(prev_stripped):
+            result.append((y, x0, text, size, bold))
+            continue
+        # 目录/索引条目行 → 每行是独立条目，不合并（与跨页守卫同款特征）：
+        # 上一行含点导线（. . . . 页码），或两行都以页码数字结尾
+        if _HAS_DOT_LEADER_RE.search(prev_stripped) or (
+            prev_stripped[-1:].isdigit() and re.search(r"\s\d{1,3}$", curr_stripped)
+        ):
             result.append((y, x0, text, size, bold))
             continue
         # 当前行以段落起始标志开头 → 不合并

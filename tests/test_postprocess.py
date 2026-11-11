@@ -401,6 +401,10 @@ class TestCollapseDotLeaders:
     def test_spaced_leaders_collapsed(self):
         assert _collapse_dot_leaders("Start with a feature. . . . . . . 8") == "Start with a feature 8"
 
+    def test_leading_space_before_leaders_consumed(self):
+        """词尾与导线间的空格一并吃掉，页码前只留单空格"""
+        assert _collapse_dot_leaders("Start with a feature . . . . . . 8") == "Start with a feature 8"
+
     def test_normal_ellipsis_kept(self):
         assert _collapse_dot_leaders("wait for it...") == "wait for it..."
 

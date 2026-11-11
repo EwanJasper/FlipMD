@@ -282,6 +282,34 @@ class TestMergeIndentedContinuations:
         result = self._merge(lines)
         assert len(result) == 2
 
+    def test_toc_dot_leader_entries_not_merged(self):
+        """目录条目行（点导线 + 页码结尾）→ 不与相邻条目合并"""
+        lines = [
+            self._line(304.0, 92.0, "Start with a feature, not a layout . . . . . . 8"),
+            self._line(324.0, 92.0, "Detail comes later . . . . . . . . . . 12"),
+            self._line(344.0, 92.0, "Don't design too much . . . . . . . . 16"),
+        ]
+        result = self._merge(lines)
+        assert len(result) == 3
+
+    def test_toc_page_number_pair_not_merged(self):
+        """无点导线的目录行：上一行页码结尾 + 当前行页码结尾 → 不合并"""
+        lines = [
+            self._line(304.0, 92.0, "Starting from Scratch 7"),
+            self._line(324.0, 92.0, "Detail comes later 12"),
+        ]
+        result = self._merge(lines)
+        assert len(result) == 2
+
+    def test_trailing_digit_body_text_still_merged(self):
+        """正文行尾恰为数字但当前行不是页码结尾 → 正常合并，不受目录守卫影响"""
+        lines = [
+            self._line(100.0, 90.0, "如第 3 图所示为版本"),
+            self._line(115.0, 90.0, "2 的界面布局预览效果"),
+        ]
+        result = self._merge(lines)
+        assert len(result) == 1
+
     def test_single_line_passthrough(self):
         """单行原样返回"""
         lines = [self._line(100.0, 90.0, "唯一一行")]
