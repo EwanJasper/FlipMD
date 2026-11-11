@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import quote
 
 from block import Block
 from config import ConvertOptions
@@ -60,7 +61,8 @@ def render(
             # 图片前后空行分隔
             if lines and lines[-1] != "":
                 lines.append("")
-            lines.append(f"![]({block.image_path})")
+            # 路径 URL 转义：空格/括号/中文不打断 ![](…) 链接
+            lines.append(f"![]({quote(block.image_path)})")
             lines.append("")
             prev_was_table = False
 
