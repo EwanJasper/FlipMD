@@ -65,7 +65,7 @@ def test_mac_stamp_preserves_other_plist_fields(tmp_path):
     assert result["CFBundleVersion"] == result["CFBundleShortVersionString"] == expected
 
 
-@pytest.mark.parametrize("release", ["0.4.0", "0.5.0", "0.5.1", "0.5.2"])
+@pytest.mark.parametrize("release", ["0.4.0", "0.5.0", "0.5.1", "0.5.2", "0.5.3"])
 def test_mac_rebuild_targets_manifest_version_folder(tmp_path, release):
     (tmp_path / "pyproject.toml").write_text(f'[project]\nversion = "{release}"\n', encoding="utf-8")
     plan = build_plan(tmp_path, "darwin")
