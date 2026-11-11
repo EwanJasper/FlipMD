@@ -6,12 +6,17 @@
 from block import Block
 from config import ConvertOptions
 from postprocess import (
+    _BULLET_PREFIX_RE,
+    _PARAGRAPH_START_RE,
+    _apply_font_headings,
+    _collapse_dot_leaders,
     fix_headings,
     fix_list_number_positions,
     headers_match,
     merge_broken_paragraphs,
     merge_consecutive_tables,
     remove_cjk_spaces,
+    smart_join,
 )
 
 # 特定模式选项（启用所有特定规则，匹配黄金样本行为）
@@ -350,3 +355,205 @@ class TestMergeConsecutiveTables:
         result = merge_consecutive_tables([t1, t2, t3], BUSINESS)
         assert len(result) == 1
         assert len(result[0].rows) == 3
+
+
+# ── smart_join ───────────────────────────────────────────────────
+
+class TestSmartJoin:
+    def test_english_words_get_space(self):
+        assert smart_join("a lot of", "different weights") == "a lot of different weights"
+
+    def test_sentence_punct_gets_space(self):
+        assert smart_join("that low.", "But your users") == "that low. But your users"
+
+    def test_cjk_concat_no_space(self):
+        assert smart_join("数据查询", "模块设计") == "数据查询模块设计"
+
+    def test_cjk_left_concat_no_space(self):
+        # 左边界是中文时直接拼接（与 remove_cjk_spaces 行为一致）
+        assert smart_join("使用", "PDF 工具") == "使用PDF 工具"
+
+    def test_digit_then_word_gets_space(self):
+        # 目录条目页码后接下一行
+        assert smart_join("not a layout 8", "Detail comes later") == "not a layout 8 Detail comes later"
+
+    def test_digits_concat_no_space(self):
+        assert smart_join("2024", "0915") == "20240915"
+
+    def test_punctuation_right_concat_no_space(self):
+        # 右侧以标点开头（URL 续行等）不加空格
+        assert smart_join("https://example.com", ".cn/docs") == "https://example.com.cn/docs"
+
+    def test_word_then_open_paren_gets_space(self):
+        assert smart_join("the function", "(see below)") == "the function (see below)"
+
+    def test_strips_edges(self):
+        assert smart_join("  left ", " right  ") == "left right"
+
+    def test_empty_sides(self):
+        assert smart_join("", "abc") == "abc"
+        assert smart_join("abc", "") == "abc"
+
+
+# ── _collapse_dot_leaders ────────────────────────────────────────
+
+class TestCollapseDotLeaders:
+    def test_spaced_leaders_collapsed(self):
+        assert _collapse_dot_leaders("Start with a feature. . . . . . . 8") == "Start with a feature 8"
+
+    def test_normal_ellipsis_kept(self):
+        assert _collapse_dot_leaders("wait for it...") == "wait for it..."
+
+    def test_long_dot_run_normalized(self):
+        assert _collapse_dot_leaders("loading......done") == "loading...done"
+
+    def test_sentence_untouched(self):
+        text = "第一段。第二段。 1.2"
+        assert _collapse_dot_leaders(text) == text
+
+
+# ── 字号 → 标题级别检测 ──────────────────────────────────────────
+
+def _para(text, size=0.0, bold=False, page=1):
+    return Block(type="paragraph", y_top=1.0, text=text, page=page,
+                 font_size=size, font_bold=bold)
+
+
+class TestApplyFontHeadings:
+    def test_size_tiers_map_to_levels(self):
+        blocks = [
+            _para("Introduction", size=28.0),
+            _para("This is the chapter opening body text without any heading style.", size=10.0),
+            _para("Setup and conventions", size=12.0),
+            _para("Body text follows the section heading in the same body font size.", size=10.0),
+        ]
+        result = _apply_font_headings(blocks)
+        assert result[0].text == "# Introduction"
+        assert result[2].text == "## Setup and conventions"
+
+    def test_bold_same_size_becomes_heading(self):
+        blocks = [
+            _para("Starting from Scratch", size=10.0, bold=True),
+            _para("Start with a feature, not a layout when designing something new.", size=10.0),
+        ]
+        result = _apply_font_headings(blocks)
+        assert result[0].text.startswith("# ")
+        assert result[1].text == blocks[1].text  # 正文不动
+
+    def test_pure_digit_line_excluded(self):
+        blocks = [
+            _para("3", size=96.0),
+            _para("Body content of the chapter opener page goes here normally.", size=10.0),
+        ]
+        result = _apply_font_headings(blocks)
+        assert result[0].text == "3"
+
+    def test_sentence_like_line_excluded(self):
+        blocks = [
+            _para("This line ends with a period.", size=12.0),
+            _para("Body content of the page continues here at body size.", size=10.0),
+        ]
+        result = _apply_font_headings(blocks)
+        assert result[0].text == "This line ends with a period."
+
+    def test_existing_hash_prefix_skipped(self):
+        blocks = [
+            _para("# 1.2 数据查询", size=16.0),
+            _para("Body content of the section continues here at body size.", size=10.0),
+        ]
+        result = _apply_font_headings(blocks)
+        assert result[0].text == "# 1.2 数据查询"
+
+    def test_trailing_page_number_stripped(self):
+        blocks = [
+            _para("Contents", size=28.0),
+            _para("Layout and Spacing", size=12.0, bold=True),
+            _para("Body content fills the rest of the page at the body size.", size=10.0),
+        ]
+        # 目录条目行（正文号 + 页码尾巴）
+        result = _apply_font_headings(blocks + [_para("Layout and Spacing 65", size=10.0, bold=True)])
+        assert "## Layout and Spacing" in [b.text for b in result]
+
+    def test_short_digit_tail_kept(self):
+        blocks = [
+            _para("iOS 13", size=12.0),
+            _para("Body content about the platform continues here at body size.", size=10.0),
+        ]
+        result = _apply_font_headings(blocks)
+        assert result[0].text == "# iOS 13"
+
+    def test_no_font_info_passthrough(self):
+        """Word / OCR 流（无字号信息）原样返回"""
+        blocks = [
+            Block(type="paragraph", y_top=0, text="普通标题文字"),
+            Block(type="paragraph", y_top=1, text="普通正文内容"),
+        ]
+        result = _apply_font_headings(blocks)
+        assert result[0].text == "普通标题文字"
+
+    def test_empty_blocks(self):
+        assert _apply_font_headings([]) == []
+
+
+# ── 项目符号与列表保护 ──────────────────────────────────────────
+
+class TestBulletsAndListProtection:
+    def test_bullet_prefix_replacement(self):
+        assert _BULLET_PREFIX_RE.sub("- ", "• A field for the departure city") == "- A field for the departure city"
+        assert _BULLET_PREFIX_RE.sub("- ", "●居中显示的要点") == "- 居中显示的要点"
+
+    def test_bullet_line_not_merged_into_prev(self):
+        blocks = [
+            Block(type="paragraph", y_top=0, text="Your interface will need the following things to work"),
+            Block(type="paragraph", y_top=1, text="- A field for the departure city"),
+        ]
+        result = merge_broken_paragraphs(blocks, BUSINESS)
+        assert len(result) == 2
+
+    def test_dash_paragraph_start_protects(self):
+        r"""'- ' 开头的行不并入上一段（_PARAGRAPH_START_RE 含 ^-\s）"""
+        assert _PARAGRAPH_START_RE.match("- 列表项内容")
+
+
+# ── 目录条目防连串 ──────────────────────────────────────────────
+
+class TestTocEntryGuard:
+    def test_toc_entries_not_chained(self):
+        """两行都以页码结尾（目录条目）→ 不合并成一段"""
+        blocks = [
+            Block(type="paragraph", y_top=0, text="Start with a feature, not a layout 8"),
+            Block(type="paragraph", y_top=1, text="Detail comes later 12"),
+        ]
+        result = merge_broken_paragraphs(blocks, BUSINESS)
+        assert len(result) == 2
+
+    def test_normal_continuation_with_digits_still_merges(self):
+        """只有 prev 以数字结尾、curr 是普通续行 → 正常合并"""
+        blocks = [
+            Block(type="paragraph", y_top=0, text="the library ships in version 3"),
+            Block(type="paragraph", y_top=1, text="and supports the legacy API"),
+        ]
+        result = merge_broken_paragraphs(blocks, BUSINESS)
+        assert len(result) == 1
+
+
+class TestBulletContinuationGuard:
+    def test_uppercase_sentence_after_bullet_not_merged(self):
+        """列表项后接大写字母开头的新句 → 不并入列表项"""
+        blocks = [
+            Block(type="paragraph", y_top=0, text="- A button to perform the search"),
+            Block(type="paragraph", y_top=1, text="Start with that. Hell, you might not even need that other stuff"),
+        ]
+        result = merge_broken_paragraphs(blocks, BUSINESS)
+        assert len(result) == 2
+        assert result[0].text == "- A button to perform the search"
+
+    def test_lowercase_continuation_after_bullet_merges(self):
+        """列表项的换行续行（小写开头）→ 正常并入列表项"""
+        blocks = [
+            Block(type="paragraph", y_top=0, text="- install the required packages on the server"),
+            Block(type="paragraph", y_top=1, text="before running the application for the first time"),
+        ]
+        result = merge_broken_paragraphs(blocks, BUSINESS)
+        assert len(result) == 1
+        assert result[0].text == "- install the required packages on the server before running the application for the first time"

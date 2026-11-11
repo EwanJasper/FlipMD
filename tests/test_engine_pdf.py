@@ -186,8 +186,12 @@ class TestClusterWordsIntoLines:
 class TestMergeIndentedContinuations:
     """_merge_indented_continuations 单元测试（同页续行合并）
 
-    输入格式：list[tuple[float, float, str]] = [(y_top, x0, text), ...]
+    输入格式：list[tuple[float, float, str, float, bool]] = [(y_top, x0, text, 字号, 粗体), ...]
     """
+
+    @staticmethod
+    def _line(y, x0, text, size=10.0, bold=False):
+        return (y, x0, text, size, bold)
 
     def _merge(self, lines):
         from engine import _merge_indented_continuations
@@ -196,8 +200,8 @@ class TestMergeIndentedContinuations:
     def test_indented_continuation_merged(self):
         """首行缩进 + 续行顶格 → 合并"""
         lines = [
-            (100.0, 111.2, "（2）如原记录明细TB01 的状态标志为01-正常，则"),
-            (115.0, 90.1, "新增变更记录写02-变更；"),
+            self._line(100.0, 111.2, "（2）如原记录明细TB01 的状态标志为01-正常，则"),
+            self._line(115.0, 90.1, "新增变更记录写02-变更；"),
         ]
         result = self._merge(lines)
         assert len(result) == 1
@@ -207,8 +211,8 @@ class TestMergeIndentedContinuations:
     def test_sentence_end_not_merged(self):
         """上一行以句末标点结尾 → 不合并"""
         lines = [
-            (100.0, 90.0, "第一段正文以句号结尾。"),
-            (115.0, 90.0, "第二段正文内容。"),
+            self._line(100.0, 90.0, "第一段正文以句号结尾。"),
+            self._line(115.0, 90.0, "第二段正文内容。"),
         ]
         result = self._merge(lines)
         assert len(result) == 2
@@ -216,8 +220,8 @@ class TestMergeIndentedContinuations:
     def test_paragraph_start_not_merged(self):
         """当前行以段落起始标志开头 → 不合并"""
         lines = [
-            (100.0, 90.0, "上一段足够长的正文内容用于测试"),
-            (115.0, 90.0, "（1）新列表项开始了一段新的内容"),
+            self._line(100.0, 90.0, "上一段足够长的正文内容用于测试"),
+            self._line(115.0, 90.0, "（1）新列表项开始了一段新的内容"),
         ]
         result = self._merge(lines)
         assert len(result) == 2
@@ -225,18 +229,46 @@ class TestMergeIndentedContinuations:
     def test_heading_num_prev_not_merged(self):
         """上一行是章节号标题（如 3.1.1 xxx）→ 不与下一行合并"""
         lines = [
-            (100.0, 90.0, "3.1.1 数据查询"),
-            (115.0, 90.0, "数据应查询TB01表的记录"),
+            self._line(100.0, 90.0, "3.1.1 数据查询"),
+            self._line(115.0, 90.0, "数据应查询TB01表的记录"),
         ]
         result = self._merge(lines)
         assert len(result) == 2
         assert result[0][2] == "3.1.1 数据查询"
 
+    def test_font_size_conflict_not_merged(self):
+        """字号差 ≥15%（标题 vs 正文）→ 不合并"""
+        lines = [
+            self._line(100.0, 90.0, "小节标题没有句末标点", size=12.0),
+            self._line(115.0, 90.0, "正文内容紧随标题之后继续书写的内容"),
+        ]
+        result = self._merge(lines)
+        assert len(result) == 2
+
+    def test_bold_conflict_not_merged(self):
+        """粗体标题行与常规正文 → 不合并"""
+        lines = [
+            self._line(100.0, 90.0, "加粗的短标题行", bold=True),
+            self._line(115.0, 90.0, "正文内容紧随标题之后继续书写的内容"),
+        ]
+        result = self._merge(lines)
+        assert len(result) == 2
+
+    def test_english_join_adds_space(self):
+        """英文续行合并 → smart_join 补空格"""
+        lines = [
+            self._line(100.0, 90.0, "typefaces that come in a lot of"),
+            self._line(115.0, 90.0, "different weights tend to be crafted"),
+        ]
+        result = self._merge(lines)
+        assert len(result) == 1
+        assert "a lot of different weights" in result[0][2]
+
     def test_large_gap_not_merged(self):
         """行间距过大（>25pt，可能是标题/表格间隔）→ 不合并"""
         lines = [
-            (100.0, 90.0, "上一段足够长的正文内容用于测试"),
-            (140.0, 90.0, "下一段足够长的正文内容用于测试"),
+            self._line(100.0, 90.0, "上一段足够长的正文内容用于测试"),
+            self._line(140.0, 90.0, "下一段足够长的正文内容用于测试"),
         ]
         result = self._merge(lines)
         assert len(result) == 2
@@ -244,15 +276,15 @@ class TestMergeIndentedContinuations:
     def test_more_indented_not_merged(self):
         """当前行比上一行缩进更多（新缩进段落）→ 不合并"""
         lines = [
-            (100.0, 90.0, "上一段足够长的正文内容用于测试"),
-            (115.0, 100.0, "当前行缩进更多视为新段落"),
+            self._line(100.0, 90.0, "上一段足够长的正文内容用于测试"),
+            self._line(115.0, 100.0, "当前行缩进更多视为新段落"),
         ]
         result = self._merge(lines)
         assert len(result) == 2
 
     def test_single_line_passthrough(self):
         """单行原样返回"""
-        lines = [(100.0, 90.0, "唯一一行")]
+        lines = [self._line(100.0, 90.0, "唯一一行")]
         assert self._merge(lines) == lines
 
 

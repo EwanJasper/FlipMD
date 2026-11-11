@@ -306,7 +306,9 @@ class Service:
                             image.image_path = cached
                             manifest.append({"ref": cached, "cache_rel": cached})
                         parsed += images
-                        parsed.sort(key=lambda block: block.y_top)
+                        # y_top 是页内坐标：跨页必须先按页码再按页内 y 排序，
+                        # 否则不同页的内容会按 y 值交错（原文顺序被打乱）
+                        parsed.sort(key=lambda block: (block.page, block.y_top))
                         log.lines.append(f"已提取 {len(images)} 张图片")
                     if job["mode"] == "merge":
                         blocks.append(Block(type="paragraph", text="## " + Path(source["name"]).stem))

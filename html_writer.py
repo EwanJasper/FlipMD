@@ -7,8 +7,12 @@
 from __future__ import annotations
 
 import html as _html
+import re
 
 from block import Block
+
+# 段落文本的 Markdown 标题前缀（engine/postprocess 会把标题烘焙为 "# xxx"）
+_HEADING_PREFIX_RE = re.compile(r'^(#{1,6})\s+(.*)$')
 
 
 def render_html(blocks: list[Block], title: str = "") -> str:
@@ -23,6 +27,15 @@ def render_html(blocks: list[Block], title: str = "") -> str:
         if block.type == "paragraph":
             text = block.text.strip()
             if not text:
+                continue
+            # Markdown 标题前缀 → 对应级别的 h 标签
+            m = _HEADING_PREFIX_RE.match(text)
+            if m:
+                level = len(m.group(1))
+                body_parts.append(
+                    f"<h{level}>{_render_inline_html(m.group(2).strip())}</h{level}>"
+                )
+                prev_was_table = False
                 continue
             if prev_was_table:
                 body_parts.append("")  # 空行占位（HTML 中无影响，保持可读性）

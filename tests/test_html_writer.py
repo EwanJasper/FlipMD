@@ -93,3 +93,27 @@ class TestRenderHtml:
         html = render_html([Block(type="image", image_path='a" onerror="alert(1)')])  # noqa: S105
         # 不应有未转义的 onerror
         assert 'onerror="alert' not in html
+
+
+class TestHeadingRendering:
+    def test_hash_prefix_paragraph_becomes_heading(self):
+        """段落文本的 "# " 前缀 → 对应级别 h 标签"""
+        html = render_html([Block(type="paragraph", text="## Installation")], title="")
+        assert "<h2>Installation</h2>" in html
+        assert "<p>" not in html
+
+    def test_heading_levels(self):
+        blocks = [Block(type="paragraph", text=t) for t in
+                  ["# One", "## Two", "### Three", "#### Four", "##### Five", "###### Six"]]
+        html = render_html(blocks, title="")
+        for level, name in enumerate(["One", "Two", "Three", "Four", "Five", "Six"], start=1):
+            assert f"<h{level}>{name}</h{level}>" in html
+
+    def test_plain_paragraph_stays_paragraph(self):
+        html = render_html([Block(type="paragraph", text="#hashtag not a heading")], title="")
+        # "#hashtag"（无空格）不是标题前缀 → 保持段落
+        assert "<p>#hashtag not a heading</p>" in html
+
+    def test_heading_inline_formatting(self):
+        html = render_html([Block(type="paragraph", text="## Use **bold** here")], title="")
+        assert "<h2>Use <strong>bold</strong> here</h2>" in html

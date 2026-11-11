@@ -100,9 +100,10 @@ def _convert_one(path: str, output: str | None, options: ConvertOptions,
             from image_extract import extract_images
             img_blocks = extract_images(path, output)
             if img_blocks:
-                # 合并到 blocks 中（按 y_top 排序保持阅读顺序）
+                # 合并到 blocks 中（按页码 + 页内 y_top 排序保持阅读顺序；
+                # y_top 是页内坐标，跨页必须先比 page）
                 blocks = blocks + img_blocks
-                blocks.sort(key=lambda b: b.y_top)
+                blocks.sort(key=lambda b: (b.page, b.y_top))
                 img_count = len(img_blocks)
         except Exception as e:
             print(f"  ⚠ 图片提取失败: {e}", file=sys.stderr)

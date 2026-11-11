@@ -59,6 +59,7 @@ def extract_pdf_images(pdf_path: str, output_md_path: str) -> list[Block]:
                         blocks.append(Block(
                             type="image",
                             y_top=float(img.get("top", page_num * 1000)),
+                            page=page_num,
                             image_path=f"images/{fname}",
                         ))
                     except Exception as e:

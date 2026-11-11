@@ -10,6 +10,8 @@ PDF 引擎和 Word 引擎共用此模块。
 """
 
 import re
+import string
+from collections import Counter
 
 from block import Block
 from config import ConvertOptions
@@ -27,6 +29,55 @@ def remove_cjk_spaces(text: str) -> str:
     # 全角空格
     text = re.sub(r'(?<=[\u4e00-\u9fff])\u3000+(?=[\u4e00-\u9fff])', '', text)
     return text
+
+
+# CJK 汉字 + 全角标点（拼接时视为"连续文字"，不加空格）
+_CJK_CHAR_RE = re.compile(r'[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]')
+
+
+def smart_join(left: str, right: str) -> str:
+    """跨行拼接两段文本，按边界字符决定是否补空格
+
+    - 任意一侧是 CJK（汉字/全角标点）→ 直接拼接（保持中文原行为）
+    - 两侧都是 ASCII 字母/数字 → 补空格（修复 "of"+"different" → "of different"）
+    - 左为句读/闭括号、右为字母数字 → 补空格（"low."+"But" → "low. But"）
+    - 右以开括号/引号开头且左为字母数字 → 补空格
+    - 其余（右以标点开头、URL 拼接等）→ 直接拼接
+    """
+    head = left.strip()
+    tail = right.strip()
+    if not head:
+        return tail
+    if not tail:
+        return head
+    lc, rc = head[-1], tail[0]
+    if _CJK_CHAR_RE.match(lc) or _CJK_CHAR_RE.match(rc):
+        return head + tail
+    if lc.isdigit() and rc.isdigit():
+        return head + tail  # 数字接数字（跨页断开的数值）不加空格
+    wordish = set(string.ascii_letters + string.digits)
+    if lc in wordish and rc in wordish:
+        return head + " " + tail
+    if lc in ".,;:!?%)])" and rc in wordish:
+        return head + " " + tail
+    if lc in wordish and rc in "(\"'\u201c\u2018[(\u300a":
+        return head + " " + tail
+    return head + tail
+
+
+def _style_conflict(a: Block, b: Block) -> bool:
+    """两个段落块的字号/粗体样式不一致 → 大概率是标题与正文的关系，不应合并
+
+    仅当双方都带字号信息（PDF 流）时生效；Word 流（字号 0）保持原行为。
+    """
+    if a.font_size > 0 and b.font_size > 0:
+        hi = max(a.font_size, b.font_size)
+        lo = min(a.font_size, b.font_size)
+        if hi >= lo * 1.15:
+            return True
+        if a.font_bold != b.font_bold:
+            return True
+    return False
 
 
 def merge_broken_paragraphs(blocks: list[Block], options: ConvertOptions | None = None) -> list[Block]:
@@ -50,6 +101,9 @@ def merge_broken_paragraphs(blocks: list[Block], options: ConvertOptions | None 
             if re.match(r'^[\.\s]{3,}$', text):
                 continue
 
+            # 折叠目录点线（". . . . 8" → " 8"）— 始终执行
+            text = _collapse_dot_leaders(text)
+
             if opts.remove_cjk_spaces:
                 cleaned = remove_cjk_spaces(text)
             else:
@@ -61,16 +115,18 @@ def merge_broken_paragraphs(blocks: list[Block], options: ConvertOptions | None 
                     and result
                     and result[-1].type == "paragraph"
                     and len(cleaned) <= 6
-                    and re.search(r'\d+\.\s*$', result[-1].text.strip())):
-                result[-1].text += cleaned
+                    and re.search(r'\d+\.\s*$', result[-1].text.strip())
+                    and not _style_conflict(result[-1], b)):
+                result[-1].text = smart_join(result[-1].text, cleaned)
                 continue
 
             # 跨页续行合并：上一段不以句末标点结尾，当前段不以段落标志开头
             if (opts.merge_broken_paragraphs
                     and result
                     and result[-1].type == "paragraph"
+                    and not _style_conflict(result[-1], b)
                     and _is_cross_page_continuation(result[-1].text, cleaned)):
-                result[-1].text += cleaned
+                result[-1].text = smart_join(result[-1].text, cleaned)
                 continue
 
             result.append(b)
@@ -82,12 +138,14 @@ def merge_broken_paragraphs(blocks: list[Block], options: ConvertOptions | None 
 
 # 句末标点：行以这些结尾时不应与下一行合并
 _SENTENCE_END_RE = re.compile(r'[。！？；;…」』\)\)]$')
-# 段落起始标志：行以这些开头时不应与上一行合并
+# 段落起始标志：行以这些开头时不应与上一行合并（含 Markdown 列表与项目符号行）
 _PARAGRAPH_START_RE = re.compile(
-    r'^（\d+[)）]|^\d+[.、]\s|^第\d+章|^【|^序号|^说明[:：]|^注[:：]|^#{1,6}\s|^\d+\.\d+'
+    r'^（\d+[)）]|^\d+[.、]\s|^第\d+章|^【|^序号|^说明[:：]|^注[:：]|^#{1,6}\s|^\d+\.\d+|^-\s|^[•●○◆◇▪‣◦]\s*'
 )
 # 章节号标题前缀（如 "3.1.1 数据查询"）— 作为上一行时不与下一行合并
 _HEADING_NUM_PREFIX_RE = re.compile(r'^\d+(?:\.\d+)+\s')
+# Markdown 列表 / 项目符号行（行首为 "- " 或常见 bullet 字符）
+_BULLET_PREFIX_RE = re.compile(r'^[•●○◆◇▪‣◦]\s*')
 
 
 def _is_cross_page_continuation(prev_text: str, curr_text: str) -> bool:
@@ -107,7 +165,15 @@ def _is_cross_page_continuation(prev_text: str, curr_text: str) -> bool:
         return False
     if _PARAGRAPH_START_RE.match(curr):
         return False
-    # prev 是章节标题（## / #### 等或纯章节号）→ 不合并
+    # 目录条目特征：两行都以页码数字结尾（如 "not a layout 8" + "comes later 12"）
+    # → 是两条独立条目，不合并
+    if re.search(r'\d$', prev) and re.search(r'\s\d{1,3}$', curr):
+        return False
+    # 上一段是 Markdown 列表项且当前段以大写字母开头 → 是新句不是列表续行，不合并
+    # （列表项自身的换行续行通常以小写字母开头，同页内已由缩进合并处理）
+    if prev.startswith("- ") and curr[:1].isupper():
+        return False
+    # prev 是标题（## / #### 等或纯章节号）→ 不合并
     if re.match(r'^#{1,6}\s', prev):
         return False
     if re.match(r'^第\d+章', prev):
@@ -311,6 +377,85 @@ def _header_similarity(a: list[str], b: list[str]) -> float:
     if not ca or not cb:
         return 0.0
     return len(ca & cb) / len(ca | cb)
+
+
+# ── 字号 → 标题级别检测 ─────────────────────────────────────────
+
+# 目录点线（". . . . 8"）与超长省略号（"…….."）
+_DOT_LEADER_SPACED_RE = re.compile(r'(?:\.\s+){2,}\.[ \t]*')
+_DOT_LEADER_UNSPACED_RE = re.compile(r'\.{6,}')
+
+
+def _collapse_dot_leaders(text: str) -> str:
+    """折叠目录引导点线：". . . . 8" → " 8"，超长点串归一为省略号
+
+    仅处理 ≥3 个以空格间隔的点（正常省略号 "..." 无空格，不受影响）。
+    """
+    text = _DOT_LEADER_SPACED_RE.sub(' ', text)
+    return _DOT_LEADER_UNSPACED_RE.sub('...', text)
+
+
+# 纯装饰行：数字、点线、连字符、竖线等（章首页的巨型章号等）
+_DECORATIVE_LINE_RE = re.compile(r'^[\d\s.\-–—•·|]+$')
+
+
+def _apply_font_headings(blocks: list[Block]) -> list[Block]:
+    """按字号/粗体特征补标题级别（面向无章节号的图书 / 英文文档）
+
+    统计正文主字号（按字符数加权众数），满足以下条件的段落视为标题候选：
+    - 字号 ≥ 正文 × 1.15；或
+    - 粗体行且字号 ≥ 正文 × 0.9（目录章名等与正文同号的粗体标题）
+
+    再用 _looks_like_heading_title 排除误判（含句号/过长/句末标点的行）。
+    大字号候选按字号分层降序映射 H1..Hn；同号粗体标题排在字号层之后。
+    已带 "# " 前缀的块（fix_headings 产出）跳过，编号标题让位于序号规则。
+
+    由 engine.parse 在 fix_headings 之后调用；Word / OCR 流无字号信息，自动空转。
+    """
+    weighted: Counter[float] = Counter()
+    for b in blocks:
+        if b.type == "paragraph" and b.font_size > 0 and not b.font_bold:
+            weighted[round(b.font_size, 1)] += len(b.text)
+    if not weighted:
+        return blocks
+    body_size = weighted.most_common(1)[0][0]
+    if body_size <= 0:
+        return blocks
+
+    candidates: list[tuple[Block, float, bool]] = []
+    for b in blocks:
+        if b.type != "paragraph" or b.font_size <= 0:
+            continue
+        text = b.text.strip()
+        if not text or re.match(r'^#{1,6}\s', text):
+            continue
+        if _DECORATIVE_LINE_RE.match(text):
+            continue
+        is_large = b.font_size >= body_size * 1.15
+        is_bold = b.font_bold and b.font_size >= body_size * 0.9
+        if not (is_large or is_bold):
+            continue
+        if not _looks_like_heading_title(text):
+            continue
+        candidates.append((b, round(b.font_size, 1), is_large))
+
+    if not candidates:
+        return blocks
+
+    size_tiers = sorted({size for _, size, is_large in candidates if is_large}, reverse=True)
+    tier_level = {size: min(i + 1, 6) for i, size in enumerate(size_tiers)}
+    bold_level = min(len(size_tiers) + 1, 6)
+
+    for b, size, is_large in candidates:
+        level = tier_level.get(size, bold_level) if is_large else bold_level
+        text = b.text.strip()
+        # 去掉标题行尾携带的页码（如 "Layout and Spacing 65"）；
+        # 词数 <3 时不处理，避免误伤 "iOS 13" 这类以数字结尾的真标题
+        if len(text.split()) >= 3:
+            text = re.sub(r'\s+\d{1,3}$', '', text)
+        b.text = f"{'#' * level} {text}"
+        b.heading_level = level
+    return blocks
 
 
 def _looks_like_data_row(block: Block) -> bool:

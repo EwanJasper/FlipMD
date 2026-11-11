@@ -1173,7 +1173,7 @@ class PdfToMarkdownApp:
                         img_blocks = extract_images(f.path, tmp_output)
                         if img_blocks:
                             blocks = blocks + img_blocks
-                            blocks.sort(key=lambda b: b.y_top)
+                            blocks.sort(key=lambda b: (b.page, b.y_top))
                             img_count = len(img_blocks)
                             self._log(f"  📷 提取 {img_count} 张图片到 images/")
                     except Exception as img_e:

@@ -32,7 +32,8 @@ class ConvertOptions:
 
     PDF 专用：
         merge_cross_page_tables: 跨页表格合并
-        filter_footer: 页脚过滤
+        filter_footer: 页脚 / 页眉过滤
+        heading_from_font_size: 按字号与粗体检测标题级别（无章节号的图书 / 英文文档）
 
     OCR：
         enable_ocr: 扫描型 PDF 自动 OCR
@@ -54,6 +55,7 @@ class ConvertOptions:
     # PDF 专用
     merge_cross_page_tables: bool = True
     filter_footer: bool = True
+    heading_from_font_size: bool = True  # 按字号/粗体识别标题（对有章节号的文档自动让位于序号规则）
     # 图片提取
     extract_images: bool = False  # 默认关（会增加体积、改变输出目录结构）
     # OCR

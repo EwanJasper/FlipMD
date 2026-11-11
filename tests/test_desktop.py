@@ -20,7 +20,11 @@ from desktop.store import Store
 
 
 @pytest.fixture
-def service(tmp_path):
+def service(tmp_path, monkeypatch):
+    # 隔离用户真实配置（~/.pdf2md/config.json）：新状态库会以 load_config() 做种子，
+    # 不隔离的话断言（如默认 extract_images=False）会随用户环境漂移
+    monkeypatch.setattr("config.CONFIG_FILE", tmp_path / "config.json")
+    monkeypatch.setattr("config.CONFIG_DIR", tmp_path)
     app = Service(tmp_path / "state")
     yield app
     app.close()
