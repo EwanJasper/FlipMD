@@ -2067,11 +2067,12 @@ wheels = [
 
 [[package]]
 name = "pdf-to-markdown"
-version = "0.5.1"
+version = "0.5.2"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },
     { name = "pdfplumber" },
+    { name = "pillow" },
     { name = "python-docx" },
 ]
 
@@ -2102,6 +2103,7 @@ requires-dist = [
     { name = "paddleocr", marker = "extra == 'ocr'", specifier = ">=2.7" },
     { name = "paddlepaddle", marker = "extra == 'ocr'", specifier = ">=2.6" },
     { name = "pdfplumber", specifier = ">=0.11" },
+    { name = "pillow", specifier = ">=10.0" },
     { name = "pyperclip", marker = "extra == 'desktop'", specifier = ">=1.9,<2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "python-docx", specifier = ">=1.1" },
